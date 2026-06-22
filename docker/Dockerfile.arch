@@ -1,0 +1,30 @@
+# Arch-based test image: matches an Arch host's userland (pacman, iptables-nft,
+# glibc) for more representative testing than the Debian-slim base, with the
+# same pinned netbird binary.
+#
+# Build:  docker build -f docker/Dockerfile.arch -t twinbird-test-arch .
+# Run:    docker run -d --name tb-arch \
+#             --cap-add=NET_ADMIN --device=/dev/net/tun \
+#             twinbird-test-arch
+# Use:    docker exec tb-arch twinbird up <name> \
+#             --management-url https://api.netbird.io:443 --setup-key <KEY>
+FROM archlinux:latest
+
+ARG NETBIRD_VERSION=0.72.1
+
+RUN pacman -Syu --noconfirm --needed \
+        ca-certificates curl iproute2 iptables-nft python python-pip \
+    && pacman -Scc --noconfirm \
+    && curl -fsSL "https://github.com/netbirdio/netbird/releases/download/v${NETBIRD_VERSION}/netbird_${NETBIRD_VERSION}_linux_amd64.tar.gz" \
+        | tar -xz -C /usr/local/bin netbird \
+    && netbird version
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY src ./src
+# Arch's pip is externally managed; install into an isolated venv and expose it.
+RUN python -m venv /opt/tb \
+    && /opt/tb/bin/pip install --no-cache-dir . \
+    && ln -s /opt/tb/bin/twinbird /usr/local/bin/twinbird
+
+CMD ["sleep", "infinity"]
