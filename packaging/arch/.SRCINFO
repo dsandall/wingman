@@ -1,0 +1,19 @@
+pkgbase = twinbird
+	pkgdesc = Run multiple NetBird instances on one machine with isolated configs, sockets, and interfaces
+	pkgver = 0.1.4
+	pkgrel = 1
+	url = https://github.com/OseSem/twinbird
+	arch = any
+	license = MIT
+	makedepends = python-build
+	makedepends = python-installer
+	makedepends = python-wheel
+	makedepends = python-hatchling
+	makedepends = git
+	depends = python
+	depends = python-typer
+	depends = netbird
+	source = twinbird::git+file:///home/thebu/newhome/projects/twinbird#branch=docker-test-harness
+	sha256sums = SKIP
+
+pkgname = twinbird

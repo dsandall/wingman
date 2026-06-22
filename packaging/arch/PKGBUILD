@@ -1,0 +1,30 @@
+# Maintainer: Dylan Sandall <thebudman6@proton.me>
+pkgname=twinbird
+pkgver=0.1.4
+pkgrel=1
+pkgdesc="Run multiple NetBird instances on one machine with isolated configs, sockets, and interfaces"
+arch=('any')
+url="https://github.com/OseSem/twinbird"
+license=('MIT')
+# netbird is provided by the AUR package of the same name (twinbird shells out
+# to the `netbird` binary and is non-functional without it).
+depends=('python' 'python-typer' 'netbird')
+makedepends=('python-build' 'python-installer' 'python-wheel' 'python-hatchling' 'git')
+# Builds from the local working repo on the docker-test-harness branch, which
+# includes the unreleased systemctl-resilience fix. To build a tagged upstream
+# release instead, swap the source line for:
+#   source=("$pkgname::git+https://github.com/OseSem/twinbird.git#tag=v$pkgver")
+source=("$pkgname::git+file:///home/thebu/newhome/projects/twinbird#branch=docker-test-harness")
+sha256sums=('SKIP')
+
+build() {
+	cd "$srcdir/$pkgname"
+	python -m build --wheel --no-isolation
+}
+
+package() {
+	cd "$srcdir/$pkgname"
+	python -m installer --destdir="$pkgdir" dist/*.whl
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
