@@ -204,6 +204,7 @@ class TestLinuxRegister:
 
         with (
             patch("twinbird.service.sys.platform", "linux"),
+            patch("twinbird.service.os.geteuid", return_value=1000),
             patch("twinbird.service.Path.home", return_value=tmp_path),
             patch("twinbird.service.subprocess.run", mock_run),
         ):
@@ -242,6 +243,7 @@ class TestLinuxRegister:
         )
         with (
             patch("twinbird.service.sys.platform", "linux"),
+            patch("twinbird.service.os.geteuid", return_value=1000),
             patch("twinbird.service.Path.home", return_value=tmp_path),
             patch("twinbird.service.subprocess.run", mock_run),
         ):
@@ -268,6 +270,7 @@ class TestLinuxUnregister:
         mock_run = MagicMock(return_value=MagicMock(returncode=0))
         with (
             patch("twinbird.service.sys.platform", "linux"),
+            patch("twinbird.service.os.geteuid", return_value=1000),
             patch("twinbird.service.Path.home", return_value=tmp_path),
             patch("twinbird.service.subprocess.run", mock_run),
         ):
@@ -284,6 +287,7 @@ class TestLinuxUnregister:
         mock_run = MagicMock(return_value=MagicMock(returncode=0))
         with (
             patch("twinbird.service.sys.platform", "linux"),
+            patch("twinbird.service.os.geteuid", return_value=1000),
             patch("twinbird.service.Path.home", return_value=tmp_path),
             patch("twinbird.service.subprocess.run", mock_run),
         ):
@@ -310,6 +314,56 @@ class TestLinuxIsRegistered:
             patch("twinbird.service.subprocess.run", mock_run),
         ):
             assert is_service_registered("office") is False
+
+
+class TestSystemdScope:
+    def test_root_uses_system_scope(self) -> None:
+        from twinbird.service import _systemd_scope
+
+        with patch("twinbird.service.os.geteuid", return_value=0):
+            unit_dir, systemctl, wanted_by = _systemd_scope()
+        assert unit_dir == Path("/etc/systemd/system")
+        assert systemctl == ["systemctl"]
+        assert wanted_by == "multi-user.target"
+
+    def test_non_root_uses_user_scope(self, tmp_path: Path) -> None:
+        from twinbird.service import _systemd_scope
+
+        with (
+            patch("twinbird.service.os.geteuid", return_value=1000),
+            patch("twinbird.service.Path.home", return_value=tmp_path),
+        ):
+            unit_dir, systemctl, wanted_by = _systemd_scope()
+        assert unit_dir == tmp_path / ".config" / "systemd" / "user"
+        assert systemctl == ["systemctl", "--user"]
+        assert wanted_by == "default.target"
+
+    def test_root_registers_system_unit(self, tmp_path: Path) -> None:
+        from twinbird.service import register_service
+
+        mock_run = MagicMock(return_value=MagicMock(returncode=0))
+        # Redirect the system unit dir so the test never touches real /etc.
+        with (
+            patch("twinbird.service.sys.platform", "linux"),
+            patch(
+                "twinbird.service._systemd_scope",
+                return_value=(tmp_path, ["systemctl"], "multi-user.target"),
+            ),
+            patch("twinbird.service.subprocess.run", mock_run),
+        ):
+            register_service(
+                name="office",
+                netbird_bin="/usr/bin/netbird",
+                config_path=Path("/root/.config/twinbird/office/config.json"),
+                daemon_addr="unix:///var/run/twinbird-office.sock",
+                log_file=Path("/root/.config/twinbird/office/daemon.log"),
+                env={"NB_STATE_DIR": "/root/.config/twinbird/office"},
+            )
+
+        content = (tmp_path / "twinbird-office.service").read_text()
+        assert "WantedBy=multi-user.target" in content
+        cmds = [c[0][0] for c in mock_run.call_args_list]
+        assert ["systemctl", "enable", "twinbird-office.service"] in cmds
 
 
 class TestMacosRegister:

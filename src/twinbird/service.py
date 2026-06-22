@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -204,20 +205,34 @@ def _is_registered_windows(name: str) -> bool:
     return result.returncode == 0
 
 
-# --- Linux: systemd user unit ---
+# --- Linux: systemd unit (system when root, --user otherwise) ---
 
 
 def _systemd_unit_dir() -> Path:
     return Path.home() / ".config" / "systemd" / "user"
 
 
+def _systemd_scope() -> tuple[Path, list[str], str]:
+    """Return (unit_dir, systemctl_prefix, wanted_by) for the active scope.
+
+    Running as root registers a system unit (which can actually create the
+    WireGuard interface on boot); a regular user falls back to a --user unit.
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return Path("/etc/systemd/system"), ["systemctl"], "multi-user.target"
+    return _systemd_unit_dir(), ["systemctl", "--user"], "default.target"
+
+
 def _systemd_unit_path(name: str) -> Path:
-    return _systemd_unit_dir() / f"twinbird-{name}.service"
+    unit_dir, _, _ = _systemd_scope()
+    return unit_dir / f"twinbird-{name}.service"
 
 
 _SYSTEMD_UNIT_TEMPLATE = """\
 [Unit]
 Description=Twinbird instance: {name}
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 {environment_block}
@@ -226,8 +241,18 @@ Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=default.target
+WantedBy={wanted_by}
 """
+
+
+def _environment_block(env: dict[str, str] | None) -> str:
+    if not env:
+        return ""
+    lines: list[str] = []
+    for key, value in sorted(env.items()):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'Environment="{key}={escaped}"')
+    return "\n".join(lines)
 
 
 def _register_linux(
@@ -238,32 +263,24 @@ def _register_linux(
     log_file: Path,
     env: dict[str, str] | None = None,
 ) -> None:
-    unit_dir = _systemd_unit_dir()
+    unit_dir, systemctl, wanted_by = _systemd_scope()
     unit_dir.mkdir(parents=True, exist_ok=True)
 
     cmd_parts = _build_netbird_cmd(netbird_bin, config_path, daemon_addr, log_file)
     exec_start = " ".join(shlex.quote(part) for part in cmd_parts)
-    environment_block = ""
-    if env:
-        lines: list[str] = []
-        for key, value in sorted(env.items()):
-            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-            lines.append(f'Environment="{key}={escaped}"')
-        environment_block = "\n".join(lines)
 
-    unit_path = _systemd_unit_path(name)
+    unit_path = unit_dir / f"twinbird-{name}.service"
     unit_path.write_text(
         _SYSTEMD_UNIT_TEMPLATE.format(
             name=name,
             exec_start=exec_start,
-            environment_block=environment_block,
+            environment_block=_environment_block(env),
+            wanted_by=wanted_by,
         )
     )
 
-    reload_result = _try_run(["systemctl", "--user", "daemon-reload"])
-    enable_result = _try_run(
-        ["systemctl", "--user", "enable", f"twinbird-{name}.service"]
-    )
+    reload_result = _try_run([*systemctl, "daemon-reload"])
+    enable_result = _try_run([*systemctl, "enable", f"twinbird-{name}.service"])
     if reload_result is None or enable_result is None:
         typer.echo(
             f"Note: systemctl not available; instance '{name}' is connected for "
@@ -282,15 +299,17 @@ def _register_linux(
 
 
 def _unregister_linux(name: str) -> None:
-    _try_run(["systemctl", "--user", "disable", f"twinbird-{name}.service"])
-    unit_path = _systemd_unit_path(name)
+    unit_dir, systemctl, _ = _systemd_scope()
+    _try_run([*systemctl, "disable", f"twinbird-{name}.service"])
+    unit_path = unit_dir / f"twinbird-{name}.service"
     if unit_path.exists():
         unit_path.unlink()
-    _try_run(["systemctl", "--user", "daemon-reload"])
+    _try_run([*systemctl, "daemon-reload"])
 
 
 def _is_registered_linux(name: str) -> bool:
-    result = _try_run(["systemctl", "--user", "is-enabled", f"twinbird-{name}.service"])
+    _, systemctl, _ = _systemd_scope()
+    result = _try_run([*systemctl, "is-enabled", f"twinbird-{name}.service"])
     return result is not None and result.returncode == 0
 
 
