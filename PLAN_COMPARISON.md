@@ -1,4 +1,4 @@
-# Naive Plan vs Twinbird
+# Naive Plan vs Wingman
 
 ## What I Was Planning
 
@@ -7,11 +7,11 @@
 3. Edit the softek config directly to change the WireGuard interface from `wt0` to `wt1`
 4. Write a second systemd unit for the softek instance
 
-## How Twinbird Differs
+## How Wingman Differs
 
-| Concern | Naive plan | Twinbird |
+| Concern | Naive plan | Wingman |
 |---|---|---|
-| Config source | Reuses existing profile configs from `/var/lib/netbird/thebu/` | Creates fresh isolated configs in `~/.config/twinbird/<name>/` |
+| Config source | Reuses existing profile configs from `/var/lib/netbird/thebu/` | Creates fresh isolated configs in `~/.config/wingman/<name>/` |
 | Service management | Systemd units | PID files with stale-PID detection |
 | Interface naming | Manual edit of existing config | Auto-assigned `wt<N>` via `platform.py` |
 | Primary install relationship | Builds on top of it; softek config mutation is risky | Fully isolated — runs alongside, doesn't touch primary install |
@@ -24,6 +24,6 @@
 - **No lifecycle management**: no way to check which second-instance daemon is running, restart it, or know its PID
 - **DNS collision not considered**: two instances both pushing to systemd-resolved — probably fine since each gets its own interface and domain, but untested
 
-## Open Question for Twinbird
+## Open Question for Wingman
 
-Since the user already has `personal` and `softek` profiles with existing auth, twinbird's fresh-config approach means re-authenticating both. Worth investigating whether twinbird can adopt an existing netbird config rather than starting from scratch.
+Since the user already has `personal` and `softek` profiles with existing auth, wingman's fresh-config approach means re-authenticating both. Worth investigating whether wingman can adopt an existing netbird config rather than starting from scratch.

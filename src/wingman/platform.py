@@ -21,14 +21,14 @@ def _is_root() -> bool:
 
 
 def get_platform_config() -> PlatformConfig:
-    override = os.environ.get("TWINBIRD_CONFIG_DIR")
+    override = os.environ.get("WINGMAN_CONFIG_DIR")
     if override:
         config_root = Path(override)
     elif sys.platform == "win32":
         appdata = os.environ.get("APPDATA")
-        config_root = Path(appdata if appdata else str(Path.home())) / "twinbird"
+        config_root = Path(appdata if appdata else str(Path.home())) / "wingman"
     else:
-        config_root = Path.home() / ".config" / "twinbird"
+        config_root = Path.home() / ".config" / "wingman"
 
     interface_prefix = "utun" if sys.platform == "darwin" else "wt"
 
@@ -42,7 +42,7 @@ def derive_daemon_addr(name: str, config: PlatformConfig) -> str:
         return f"tcp://127.0.0.1:{port}"
 
     if _is_root():
-        return f"unix:///var/run/twinbird-{name}.sock"
+        return f"unix:///var/run/wingman-{name}.sock"
 
     sock_path = config.config_root / name / f"{name}.sock"
     return f"unix://{sock_path.as_posix()}"

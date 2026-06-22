@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from twinbird.config import (
+from wingman.config import (
     InstanceMetadata,
     ensure_instance_dir,
     instance_dir,

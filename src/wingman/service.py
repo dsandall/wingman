@@ -24,7 +24,7 @@ def _try_run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
 
 
 def _task_name(name: str) -> str:
-    return f"twinbird-{name}"
+    return f"wingman-{name}"
 
 
 def _build_netbird_cmd(
@@ -142,7 +142,7 @@ def _write_task_xml(name: str, parts: list[str]) -> Path:
         command=xml_escape(command),
         arguments=xml_escape(arguments),
     )
-    xml_file = Path(tempfile.gettempdir()) / f"twinbird-{name}.xml"
+    xml_file = Path(tempfile.gettempdir()) / f"wingman-{name}.xml"
     xml_file.write_text(xml_content, encoding="utf-16")
     return xml_file
 
@@ -225,12 +225,12 @@ def _systemd_scope() -> tuple[Path, list[str], str]:
 
 def _systemd_unit_path(name: str) -> Path:
     unit_dir, _, _ = _systemd_scope()
-    return unit_dir / f"twinbird-{name}.service"
+    return unit_dir / f"wingman-{name}.service"
 
 
 _SYSTEMD_UNIT_TEMPLATE = """\
 [Unit]
-Description=Twinbird instance: {name}
+Description=Wingman instance: {name}
 After=network-online.target
 Wants=network-online.target
 
@@ -269,7 +269,7 @@ def _register_linux(
     cmd_parts = _build_netbird_cmd(netbird_bin, config_path, daemon_addr, log_file)
     exec_start = " ".join(shlex.quote(part) for part in cmd_parts)
 
-    unit_path = unit_dir / f"twinbird-{name}.service"
+    unit_path = unit_dir / f"wingman-{name}.service"
     unit_path.write_text(
         _SYSTEMD_UNIT_TEMPLATE.format(
             name=name,
@@ -280,7 +280,7 @@ def _register_linux(
     )
 
     reload_result = _try_run([*systemctl, "daemon-reload"])
-    enable_result = _try_run([*systemctl, "enable", f"twinbird-{name}.service"])
+    enable_result = _try_run([*systemctl, "enable", f"wingman-{name}.service"])
     if reload_result is None or enable_result is None:
         typer.echo(
             f"Note: systemctl not available; instance '{name}' is connected for "
@@ -300,8 +300,8 @@ def _register_linux(
 
 def _unregister_linux(name: str) -> None:
     unit_dir, systemctl, _ = _systemd_scope()
-    _try_run([*systemctl, "disable", f"twinbird-{name}.service"])
-    unit_path = unit_dir / f"twinbird-{name}.service"
+    _try_run([*systemctl, "disable", f"wingman-{name}.service"])
+    unit_path = unit_dir / f"wingman-{name}.service"
     if unit_path.exists():
         unit_path.unlink()
     _try_run([*systemctl, "daemon-reload"])
@@ -309,7 +309,7 @@ def _unregister_linux(name: str) -> None:
 
 def _is_registered_linux(name: str) -> bool:
     _, systemctl, _ = _systemd_scope()
-    result = _try_run([*systemctl, "is-enabled", f"twinbird-{name}.service"])
+    result = _try_run([*systemctl, "is-enabled", f"wingman-{name}.service"])
     return result is not None and result.returncode == 0
 
 
@@ -321,7 +321,7 @@ def _launchd_plist_dir() -> Path:
 
 
 def _launchd_plist_path(name: str) -> Path:
-    return _launchd_plist_dir() / f"com.twinbird.{name}.plist"
+    return _launchd_plist_dir() / f"com.wingman.{name}.plist"
 
 
 _LAUNCHD_PLIST_TEMPLATE = """\
@@ -331,7 +331,7 @@ _LAUNCHD_PLIST_TEMPLATE = """\
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.twinbird.{name}</string>
+    <string>com.wingman.{name}</string>
     <key>ProgramArguments</key>
     <array>
 {program_arguments}

@@ -1,11 +1,11 @@
-# Test image: twinbird + a pinned netbird binary, for running NetBird instances
+# Test image: wingman + a pinned netbird binary, for running NetBird instances
 # inside an isolated container network namespace (no collision with the host daemon).
 #
-# Build:  docker build -f docker/Dockerfile -t twinbird-test .
+# Build:  docker build -f docker/Dockerfile -t wingman-test .
 # Run:    docker run -d --name tb-test \
 #             --cap-add=NET_ADMIN --device=/dev/net/tun \
-#             twinbird-test
-# Use:    docker exec tb-test twinbird up <name> \
+#             wingman-test
+# Use:    docker exec tb-test wingman up <name> \
 #             --management-url https://api.netbird.io:443 --setup-key <KEY>
 FROM python:3.11-slim
 
@@ -23,5 +23,5 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
-# Keep the container (and thus the detached netbird daemons twinbird spawns) alive.
+# Keep the container (and thus the detached netbird daemons wingman spawns) alive.
 CMD ["sleep", "infinity"]

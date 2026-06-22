@@ -10,16 +10,16 @@ from typing import Any
 
 
 def find_netbird_bin() -> str:
-    bin_path = os.environ.get("TWINBIRD_NETBIRD_BIN", "netbird")
+    bin_path = os.environ.get("WINGMAN_NETBIRD_BIN", "netbird")
     if bin_path != "netbird":
         if not shutil.which(bin_path):
             msg = (
                 f"netbird binary not found at '{bin_path}'"
-                " (set via TWINBIRD_NETBIRD_BIN)."
+                " (set via WINGMAN_NETBIRD_BIN)."
             )
             raise FileNotFoundError(msg)
     elif shutil.which("netbird") is None:
-        msg = "netbird not found on PATH. Install NetBird or set TWINBIRD_NETBIRD_BIN."
+        msg = "netbird not found on PATH. Install NetBird or set WINGMAN_NETBIRD_BIN."
         raise FileNotFoundError(msg)
     return bin_path
 

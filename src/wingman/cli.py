@@ -3,17 +3,17 @@ from typing import Annotated
 
 import typer
 
-from twinbird import instance as inst
+from wingman import instance as inst
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"twinbird {version('twinbird')}")
+        typer.echo(f"wingman {version('wingman')}")
         raise typer.Exit
 
 
 app = typer.Typer(
-    name="twinbird",
+    name="wingman",
     help="Manage multiple NetBird instances with isolated configs and interfaces.",
 )
 
@@ -40,14 +40,14 @@ def up(
     management_url: str = typer.Option(
         ...,
         "--management-url",
-        envvar="TWINBIRD_MANAGEMENT_URL",
+        envvar="WINGMAN_MANAGEMENT_URL",
         help="NetBird management URL",
     ),
     setup_key: Annotated[
         str | None,
         typer.Option(
             "--setup-key",
-            envvar="TWINBIRD_SETUP_KEY",
+            envvar="WINGMAN_SETUP_KEY",
             help="NetBird setup key (omit for OAuth login)",
         ),
     ] = None,

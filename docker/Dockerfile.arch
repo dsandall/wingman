@@ -2,11 +2,11 @@
 # glibc) for more representative testing than the Debian-slim base, with the
 # same pinned netbird binary.
 #
-# Build:  docker build -f docker/Dockerfile.arch -t twinbird-test-arch .
+# Build:  docker build -f docker/Dockerfile.arch -t wingman-test-arch .
 # Run:    docker run -d --name tb-arch \
 #             --cap-add=NET_ADMIN --device=/dev/net/tun \
-#             twinbird-test-arch
-# Use:    docker exec tb-arch twinbird up <name> \
+#             wingman-test-arch
+# Use:    docker exec tb-arch wingman up <name> \
 #             --management-url https://api.netbird.io:443 --setup-key <KEY>
 FROM archlinux:latest
 
@@ -25,6 +25,6 @@ COPY src ./src
 # Arch's pip is externally managed; install into an isolated venv and expose it.
 RUN python -m venv /opt/tb \
     && /opt/tb/bin/pip install --no-cache-dir . \
-    && ln -s /opt/tb/bin/twinbird /usr/local/bin/twinbird
+    && ln -s /opt/tb/bin/wingman /usr/local/bin/wingman
 
 CMD ["sleep", "infinity"]

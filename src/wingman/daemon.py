@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from twinbird import netbird
-from twinbird.config import read_pid, remove_pid, write_pid
+from wingman import netbird
+from wingman.config import read_pid, remove_pid, write_pid
 
 
 def is_daemon_reachable(daemon_addr: str) -> bool:

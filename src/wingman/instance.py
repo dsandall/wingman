@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import typer
 
-from twinbird.config import (
+from wingman.config import (
     InstanceMetadata,
     ensure_instance_dir,
     list_instances,
@@ -15,21 +15,21 @@ from twinbird.config import (
     seed_netbird_config,
     write_metadata,
 )
-from twinbird.daemon import (
+from wingman.daemon import (
     is_daemon_reachable,
     is_process_alive,
     start_daemon,
     stop_daemon,
 )
-from twinbird.netbird import find_netbird_bin, run_down, run_status, run_up
-from twinbird.platform import (
+from wingman.netbird import find_netbird_bin, run_down, run_status, run_up
+from wingman.platform import (
     PlatformConfig,
     derive_daemon_addr,
     derive_interface_name,
     derive_netbird_runtime,
     get_platform_config,
 )
-from twinbird.service import is_service_registered, register_service, unregister_service
+from wingman.service import is_service_registered, register_service, unregister_service
 
 
 def up(

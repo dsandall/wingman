@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-from twinbird.platform import (
+from wingman.platform import (
     PlatformConfig,
     derive_daemon_addr,
     derive_interface_name,
@@ -15,17 +15,17 @@ from twinbird.platform import (
 class TestGetPlatformConfig:
     def test_linux_defaults(self) -> None:
         with (
-            patch("twinbird.platform.sys.platform", "linux"),
-            patch("twinbird.platform.Path.home", return_value=Path("/home/user")),
+            patch("wingman.platform.sys.platform", "linux"),
+            patch("wingman.platform.Path.home", return_value=Path("/home/user")),
             patch.dict("os.environ", {}, clear=True),
         ):
             config = get_platform_config()
-            assert config.config_root == Path("/home/user/.config/twinbird")
+            assert config.config_root == Path("/home/user/.config/wingman")
             assert config.interface_prefix == "wt"
 
     def test_windows_defaults(self) -> None:
         with (
-            patch("twinbird.platform.sys.platform", "win32"),
+            patch("wingman.platform.sys.platform", "win32"),
             patch.dict(
                 "os.environ",
                 {"APPDATA": "C:/Users/user/AppData/Roaming"},
@@ -33,23 +33,23 @@ class TestGetPlatformConfig:
             ),
         ):
             config = get_platform_config()
-            assert config.config_root == Path("C:/Users/user/AppData/Roaming/twinbird")
+            assert config.config_root == Path("C:/Users/user/AppData/Roaming/wingman")
             assert config.interface_prefix == "wt"
 
     def test_darwin_defaults(self) -> None:
         with (
-            patch("twinbird.platform.sys.platform", "darwin"),
-            patch("twinbird.platform.Path.home", return_value=Path("/Users/user")),
+            patch("wingman.platform.sys.platform", "darwin"),
+            patch("wingman.platform.Path.home", return_value=Path("/Users/user")),
             patch.dict("os.environ", {}, clear=True),
         ):
             config = get_platform_config()
-            assert config.config_root == Path("/Users/user/.config/twinbird")
+            assert config.config_root == Path("/Users/user/.config/wingman")
             assert config.interface_prefix == "utun"
 
     def test_env_override(self) -> None:
         with (
-            patch("twinbird.platform.sys.platform", "linux"),
-            patch.dict("os.environ", {"TWINBIRD_CONFIG_DIR": "/custom/path"}),
+            patch("wingman.platform.sys.platform", "linux"),
+            patch.dict("os.environ", {"WINGMAN_CONFIG_DIR": "/custom/path"}),
         ):
             config = get_platform_config()
             assert config.config_root == Path("/custom/path")
@@ -58,10 +58,10 @@ class TestGetPlatformConfig:
 class TestDeriveDaemonAddr:
     def test_windows_tcp(self) -> None:
         config = PlatformConfig(
-            config_root=Path("C:/Users/user/AppData/twinbird"),
+            config_root=Path("C:/Users/user/AppData/wingman"),
             interface_prefix="wt",
         )
-        with patch("twinbird.platform.sys.platform", "win32"):
+        with patch("wingman.platform.sys.platform", "win32"):
             addr = derive_daemon_addr("office", config)
             assert addr.startswith("tcp://127.0.0.1:")
             port = int(addr.split(":")[-1])
@@ -69,57 +69,57 @@ class TestDeriveDaemonAddr:
 
     def test_deterministic(self) -> None:
         config = PlatformConfig(
-            config_root=Path("/home/user/.config/twinbird"),
+            config_root=Path("/home/user/.config/wingman"),
             interface_prefix="wt",
         )
-        with patch("twinbird.platform.sys.platform", "win32"):
+        with patch("wingman.platform.sys.platform", "win32"):
             assert derive_daemon_addr("office", config) == derive_daemon_addr(
                 "office", config
             )
 
     def test_different_names_different_addrs(self) -> None:
         config = PlatformConfig(
-            config_root=Path("/home/user/.config/twinbird"),
+            config_root=Path("/home/user/.config/wingman"),
             interface_prefix="wt",
         )
-        with patch("twinbird.platform.sys.platform", "win32"):
+        with patch("wingman.platform.sys.platform", "win32"):
             assert derive_daemon_addr("office", config) != derive_daemon_addr(
                 "home", config
             )
 
     def test_linux_root(self) -> None:
         config = PlatformConfig(
-            config_root=Path("/home/user/.config/twinbird"),
+            config_root=Path("/home/user/.config/wingman"),
             interface_prefix="wt",
         )
         with (
-            patch("twinbird.platform.sys.platform", "linux"),
-            patch("twinbird.platform._is_root", return_value=True),
+            patch("wingman.platform.sys.platform", "linux"),
+            patch("wingman.platform._is_root", return_value=True),
         ):
             addr = derive_daemon_addr("office", config)
-            assert addr == "unix:///var/run/twinbird-office.sock"
+            assert addr == "unix:///var/run/wingman-office.sock"
 
     def test_linux_non_root(self) -> None:
         config = PlatformConfig(
-            config_root=Path("/home/user/.config/twinbird"),
+            config_root=Path("/home/user/.config/wingman"),
             interface_prefix="wt",
         )
         with (
-            patch("twinbird.platform.sys.platform", "linux"),
-            patch("twinbird.platform._is_root", return_value=False),
+            patch("wingman.platform.sys.platform", "linux"),
+            patch("wingman.platform._is_root", return_value=False),
         ):
             addr = derive_daemon_addr("office", config)
-            expected = "unix:///home/user/.config/twinbird/office/office.sock"
+            expected = "unix:///home/user/.config/wingman/office/office.sock"
             assert addr == expected
 
 
 class TestDeriveNetbirdRuntime:
     def test_linux_non_root_uses_state_dir(self) -> None:
-        config_dir = Path("/home/user/.config/twinbird/office")
+        config_dir = Path("/home/user/.config/wingman/office")
         with (
-            patch("twinbird.platform.sys.platform", "linux"),
-            patch("twinbird.platform._is_root", return_value=False),
-            patch("twinbird.platform.getpass.getuser", return_value="alice"),
+            patch("wingman.platform.sys.platform", "linux"),
+            patch("wingman.platform._is_root", return_value=False),
+            patch("wingman.platform.getpass.getuser", return_value="alice"),
         ):
             config_path, env = derive_netbird_runtime(config_dir)
 
@@ -127,10 +127,10 @@ class TestDeriveNetbirdRuntime:
         assert env == {"NB_STATE_DIR": str(config_dir)}
 
     def test_linux_root_isolates_state_dir(self) -> None:
-        config_dir = Path("/root/.config/twinbird/office")
+        config_dir = Path("/root/.config/wingman/office")
         with (
-            patch("twinbird.platform.sys.platform", "linux"),
-            patch("twinbird.platform._is_root", return_value=True),
+            patch("wingman.platform.sys.platform", "linux"),
+            patch("wingman.platform._is_root", return_value=True),
         ):
             config_path, env = derive_netbird_runtime(config_dir)
 
@@ -140,8 +140,8 @@ class TestDeriveNetbirdRuntime:
         assert env == {"NB_STATE_DIR": str(config_dir)}
 
     def test_non_linux_uses_plain_config(self) -> None:
-        config_dir = Path("/Users/user/.config/twinbird/office")
-        with patch("twinbird.platform.sys.platform", "darwin"):
+        config_dir = Path("/Users/user/.config/wingman/office")
+        with patch("wingman.platform.sys.platform", "darwin"):
             config_path, env = derive_netbird_runtime(config_dir)
 
         assert config_path == config_dir / "config.json"

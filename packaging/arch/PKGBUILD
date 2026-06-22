@@ -1,20 +1,18 @@
 # Maintainer: Dylan Sandall <thebudman6@proton.me>
-pkgname=twinbird
+pkgname=wingman
 pkgver=0.1.4
 pkgrel=1
 pkgdesc="Run multiple NetBird instances on one machine with isolated configs, sockets, and interfaces"
 arch=('any')
-url="https://github.com/OseSem/twinbird"
+url="https://github.com/dsandall/wingman"
 license=('MIT')
-# netbird is provided by the AUR package of the same name (twinbird shells out
+# netbird is provided by the AUR package of the same name (wingman shells out
 # to the `netbird` binary and is non-functional without it).
 depends=('python' 'python-typer' 'netbird')
 makedepends=('python-build' 'python-installer' 'python-wheel' 'python-hatchling' 'git')
-# Builds from the local working repo on the docker-test-harness branch, which
-# includes the unreleased systemctl-resilience fix. To build a tagged upstream
-# release instead, swap the source line for:
-#   source=("$pkgname::git+https://github.com/OseSem/twinbird.git#tag=v$pkgver")
-source=("$pkgname::git+file:///home/thebu/newhome/projects/twinbird#branch=docker-test-harness")
+# Builds the tip of master. To pin a tagged release instead, swap for:
+#   source=("$pkgname::git+https://github.com/dsandall/wingman.git#tag=v$pkgver")
+source=("$pkgname::git+https://github.com/dsandall/wingman.git#branch=master")
 sha256sums=('SKIP')
 
 build() {

@@ -1,11 +1,11 @@
 [project]
-name = "twinbird"
+name = "wingman"
 version = "0.1.4"
 description = "Manage multiple NetBird instances with isolated configs, sockets, and interfaces"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "OseSem", email = "sem@osesem.xyz" }
+    { name = "Dylan Sandall", email = "thebudman6@proton.me" }
 ]
 keywords = ["netbird", "vpn", "wireguard", "multi-instance", "cli"]
 classifiers = [
@@ -26,19 +26,19 @@ dependencies = [
 ]
 
 [project.scripts]
-twinbird = "twinbird.cli:app"
+wingman = "wingman.cli:app"
 
 [project.urls]
-Homepage = "https://github.com/OseSem/twinbird"
-Repository = "https://github.com/OseSem/twinbird"
-Issues = "https://github.com/OseSem/twinbird/issues"
+Homepage = "https://github.com/dsandall/wingman"
+Repository = "https://github.com/dsandall/wingman"
+Issues = "https://github.com/dsandall/wingman/issues"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/twinbird"]
+packages = ["src/wingman"]
 
 [dependency-groups]
 dev = [
@@ -50,7 +50,7 @@ dev = [
 
 [tool.pyright]
 typeCheckingMode = "standard"
-include = ["src/twinbird"]
+include = ["src/wingman"]
 
 [tool.ruff]
 line-length = 88
