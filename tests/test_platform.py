@@ -126,12 +126,22 @@ class TestDeriveNetbirdRuntime:
         assert config_path == config_dir / "alice" / "personal.json"
         assert env == {"NB_STATE_DIR": str(config_dir)}
 
-    def test_linux_root_uses_plain_config(self) -> None:
+    def test_linux_root_isolates_state_dir(self) -> None:
         config_dir = Path("/root/.config/twinbird/office")
         with (
             patch("twinbird.platform.sys.platform", "linux"),
             patch("twinbird.platform._is_root", return_value=True),
         ):
+            config_path, env = derive_netbird_runtime(config_dir)
+
+        assert config_path == config_dir / "config.json"
+        # Root must also isolate NB_STATE_DIR, or the daemon shares
+        # /var/lib/netbird with the system install and collides over wt0.
+        assert env == {"NB_STATE_DIR": str(config_dir)}
+
+    def test_non_linux_uses_plain_config(self) -> None:
+        config_dir = Path("/Users/user/.config/twinbird/office")
+        with patch("twinbird.platform.sys.platform", "darwin"):
             config_path, env = derive_netbird_runtime(config_dir)
 
         assert config_path == config_dir / "config.json"

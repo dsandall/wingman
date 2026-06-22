@@ -56,8 +56,17 @@ def derive_interface_name(name: str, config: PlatformConfig) -> str:
 
 def derive_netbird_runtime(config_dir: Path) -> tuple[Path, dict[str, str]]:
     """Resolve netbird config path and runtime env for an instance directory."""
-    if sys.platform == "linux" and not _is_root():
-        user = getpass.getuser()
-        return config_dir / user / "personal.json", {"NB_STATE_DIR": str(config_dir)}
+    if sys.platform != "linux":
+        return config_dir / "config.json", {}
 
-    return config_dir / "config.json", {}
+    # Always isolate NetBird state per instance on Linux. Without this a root
+    # daemon shares the default /var/lib/netbird with the system install (and
+    # any other instance), inherits its active profile, and fights over that
+    # profile's interface (e.g. wt0). Non-root additionally avoids /var/lib
+    # permission issues.
+    env = {"NB_STATE_DIR": str(config_dir)}
+    if not _is_root():
+        user = getpass.getuser()
+        return config_dir / user / "personal.json", env
+
+    return config_dir / "config.json", env
