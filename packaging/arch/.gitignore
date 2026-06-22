@@ -1,0 +1,6 @@
+# makepkg build artifacts
+pkg/
+src/
+wingman/
+*.pkg.tar.*
+*.log
