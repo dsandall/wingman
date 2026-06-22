@@ -26,9 +26,9 @@ def ensure_instance_dir(config_root: Path, name: str) -> Path:
     return path
 
 
-def seed_netbird_config(config_dir: Path, interface_name: str) -> None:
-    """Ensure the NetBird config.json has the correct WgIface before daemon start."""
-    config_path = config_dir / "config.json"
+def seed_netbird_config(config_path: Path, interface_name: str) -> None:
+    """Ensure the NetBird config file has the correct WgIface before daemon start."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     if config_path.exists():
         try:
             data = json.loads(config_path.read_text())

@@ -9,13 +9,26 @@ from pathlib import Path
 import typer
 
 
+def _try_run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
+    """Run a command, returning None if the executable is not present.
+
+    Service managers (systemctl, launchctl, schtasks) are absent in some
+    environments — containers, minimal/non-systemd distros. In those cases
+    persistence is simply skipped rather than crashing the caller.
+    """
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return None
+
+
 def _task_name(name: str) -> str:
     return f"twinbird-{name}"
 
 
 def _build_netbird_cmd(
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
     log_file: Path,
 ) -> list[str]:
@@ -24,7 +37,7 @@ def _build_netbird_cmd(
         "service",
         "run",
         "--config",
-        str(config_dir / "config.json"),
+        str(config_path),
         "--daemon-addr",
         daemon_addr,
         "--log-file",
@@ -35,16 +48,17 @@ def _build_netbird_cmd(
 def register_service(
     name: str,
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
     log_file: Path,
+    env: dict[str, str] | None = None,
 ) -> None:
     if sys.platform == "win32":
-        _register_windows(name, netbird_bin, config_dir, daemon_addr, log_file)
+        _register_windows(name, netbird_bin, config_path, daemon_addr, log_file)
     elif sys.platform == "darwin":
-        _register_macos(name, netbird_bin, config_dir, daemon_addr, log_file)
+        _register_macos(name, netbird_bin, config_path, daemon_addr, log_file)
     else:
-        _register_linux(name, netbird_bin, config_dir, daemon_addr, log_file)
+        _register_linux(name, netbird_bin, config_path, daemon_addr, log_file, env)
 
 
 def unregister_service(name: str) -> None:
@@ -135,11 +149,11 @@ def _write_task_xml(name: str, parts: list[str]) -> Path:
 def _register_windows(
     name: str,
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
     log_file: Path,
 ) -> None:
-    parts = _build_netbird_cmd(netbird_bin, config_dir, daemon_addr, log_file)
+    parts = _build_netbird_cmd(netbird_bin, config_path, daemon_addr, log_file)
     task_name = _task_name(name)
     xml_file = _write_task_xml(name, parts)
 
@@ -206,6 +220,7 @@ _SYSTEMD_UNIT_TEMPLATE = """\
 Description=Twinbird instance: {name}
 
 [Service]
+{environment_block}
 ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
@@ -218,33 +233,44 @@ WantedBy=default.target
 def _register_linux(
     name: str,
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
     log_file: Path,
+    env: dict[str, str] | None = None,
 ) -> None:
     unit_dir = _systemd_unit_dir()
     unit_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd_parts = _build_netbird_cmd(netbird_bin, config_dir, daemon_addr, log_file)
+    cmd_parts = _build_netbird_cmd(netbird_bin, config_path, daemon_addr, log_file)
     exec_start = " ".join(shlex.quote(part) for part in cmd_parts)
+    environment_block = ""
+    if env:
+        lines: list[str] = []
+        for key, value in sorted(env.items()):
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            lines.append(f'Environment="{key}={escaped}"')
+        environment_block = "\n".join(lines)
 
     unit_path = _systemd_unit_path(name)
     unit_path.write_text(
-        _SYSTEMD_UNIT_TEMPLATE.format(name=name, exec_start=exec_start)
+        _SYSTEMD_UNIT_TEMPLATE.format(
+            name=name,
+            exec_start=exec_start,
+            environment_block=environment_block,
+        )
     )
 
-    reload_result = subprocess.run(
-        ["systemctl", "--user", "daemon-reload"],
-        capture_output=True,
-        text=True,
-        check=False,
+    reload_result = _try_run(["systemctl", "--user", "daemon-reload"])
+    enable_result = _try_run(
+        ["systemctl", "--user", "enable", f"twinbird-{name}.service"]
     )
-    enable_result = subprocess.run(
-        ["systemctl", "--user", "enable", f"twinbird-{name}.service"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    if reload_result is None or enable_result is None:
+        typer.echo(
+            f"Note: systemctl not available; instance '{name}' is connected for "
+            "this session but won't be registered to start on boot.",
+            err=True,
+        )
+        return
     if reload_result.returncode != 0 or enable_result.returncode != 0:
         stderr = " | ".join(
             s for s in (reload_result.stderr, enable_result.stderr) if s
@@ -256,31 +282,16 @@ def _register_linux(
 
 
 def _unregister_linux(name: str) -> None:
-    subprocess.run(
-        ["systemctl", "--user", "disable", f"twinbird-{name}.service"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    _try_run(["systemctl", "--user", "disable", f"twinbird-{name}.service"])
     unit_path = _systemd_unit_path(name)
     if unit_path.exists():
         unit_path.unlink()
-    subprocess.run(
-        ["systemctl", "--user", "daemon-reload"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    _try_run(["systemctl", "--user", "daemon-reload"])
 
 
 def _is_registered_linux(name: str) -> bool:
-    result = subprocess.run(
-        ["systemctl", "--user", "is-enabled", f"twinbird-{name}.service"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.returncode == 0
+    result = _try_run(["systemctl", "--user", "is-enabled", f"twinbird-{name}.service"])
+    return result is not None and result.returncode == 0
 
 
 # --- macOS: launchd user agent ---
@@ -322,14 +333,14 @@ _LAUNCHD_PLIST_TEMPLATE = """\
 def _register_macos(
     name: str,
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
     log_file: Path,
 ) -> None:
     plist_dir = _launchd_plist_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd_parts = _build_netbird_cmd(netbird_bin, config_dir, daemon_addr, log_file)
+    cmd_parts = _build_netbird_cmd(netbird_bin, config_path, daemon_addr, log_file)
     program_arguments = "\n".join(
         f"        <string>{part}</string>" for part in cmd_parts
     )

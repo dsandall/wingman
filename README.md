@@ -61,6 +61,8 @@ Each named instance gets:
 
 Twinbird starts a separate `netbird service run` daemon per instance, then connects with `netbird up` — all fully isolated from the primary NetBird installation.
 
+On Linux when running as a regular user, Twinbird automatically sets an instance-local NetBird state directory (`NB_STATE_DIR`) to avoid permission issues with `/var/lib/netbird`.
+
 ## Requirements
 
 - [NetBird](https://netbird.io) installed and on PATH

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import getpass
 import hashlib
 import os
 import sys
@@ -51,3 +52,12 @@ def derive_interface_name(name: str, config: PlatformConfig) -> str:
     h = int(hashlib.sha256(name.encode()).hexdigest(), 16)
     index = 1 + (h % 99)
     return f"{config.interface_prefix}{index}"
+
+
+def derive_netbird_runtime(config_dir: Path) -> tuple[Path, dict[str, str]]:
+    """Resolve netbird config path and runtime env for an instance directory."""
+    if sys.platform == "linux" and not _is_root():
+        user = getpass.getuser()
+        return config_dir / user / "personal.json", {"NB_STATE_DIR": str(config_dir)}
+
+    return config_dir / "config.json", {}

@@ -49,19 +49,20 @@ def is_process_alive(pid: int) -> bool:
 
 def start_daemon(
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
     config_root: Path,
     name: str,
+    log_file: Path,
+    env: dict[str, str] | None = None,
 ) -> int:
-    proc = netbird.run_service(netbird_bin, config_dir, daemon_addr)
+    proc = netbird.run_service(netbird_bin, config_path, daemon_addr, log_file, env)
     write_pid(config_root, name, proc.pid)
 
     for _ in range(10):
         time.sleep(0.5)
         if not is_process_alive(proc.pid):
             remove_pid(config_root, name)
-            log_file = config_dir / "daemon.log"
             log_tail = ""
             if log_file.exists():
                 lines = log_file.read_text().splitlines()

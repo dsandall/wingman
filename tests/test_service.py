@@ -17,7 +17,9 @@ class TestWindowsRegister:
             register_service(
                 name="office",
                 netbird_bin="C:/Program Files/netbird/netbird.exe",
-                config_dir=Path("C:/Users/user/AppData/Roaming/twinbird/office"),
+                config_path=Path(
+                    "C:/Users/user/AppData/Roaming/twinbird/office/config.json"
+                ),
                 daemon_addr="tcp://127.0.0.1:52200",
                 log_file=Path(
                     "C:/Users/user/AppData/Roaming/twinbird/office/daemon.log"
@@ -49,7 +51,9 @@ class TestWindowsRegister:
             register_service(
                 name="office",
                 netbird_bin="netbird",
-                config_dir=Path("C:/Users/user/AppData/Roaming/twinbird/office"),
+                config_path=Path(
+                    "C:/Users/user/AppData/Roaming/twinbird/office/config.json"
+                ),
                 daemon_addr="tcp://127.0.0.1:52200",
                 log_file=Path(
                     "C:/Users/user/AppData/Roaming/twinbird/office/daemon.log"
@@ -80,7 +84,7 @@ class TestWindowsRegister:
             register_service(
                 name="office",
                 netbird_bin="netbird",
-                config_dir=Path("/tmp/twinbird/office"),
+                config_path=Path("/tmp/twinbird/office/config.json"),
                 daemon_addr="tcp://127.0.0.1:52200",
                 log_file=Path("/tmp/twinbird/office/daemon.log"),
             )
@@ -92,7 +96,7 @@ class TestWindowsRegister:
 
         parts = _build_netbird_cmd(
             "netbird",
-            Path("C:/config/office"),
+            Path("C:/config/office/config.json"),
             "tcp://127.0.0.1:52200",
             Path("C:/config/office/daemon.log"),
         )
@@ -206,9 +210,10 @@ class TestLinuxRegister:
             register_service(
                 name="office",
                 netbird_bin="/usr/bin/netbird",
-                config_dir=Path("/home/user/.config/twinbird/office"),
+                config_path=Path("/home/user/.config/twinbird/office/config.json"),
                 daemon_addr="unix:///home/user/.config/twinbird/office/office.sock",
                 log_file=Path("/home/user/.config/twinbird/office/daemon.log"),
+                env={"NB_STATE_DIR": "/home/user/.config/twinbird/office"},
             )
 
         unit_file = unit_dir / "twinbird-office.service"
@@ -218,6 +223,9 @@ class TestLinuxRegister:
         assert (
             "--daemon-addr unix:///home/user/.config/twinbird/office/office.sock"
             in content
+        )
+        assert (
+            'Environment="NB_STATE_DIR=/home/user/.config/twinbird/office"' in content
         )
         assert "WantedBy=default.target" in content
 
@@ -240,7 +248,7 @@ class TestLinuxRegister:
             register_service(
                 name="office",
                 netbird_bin="/usr/bin/netbird",
-                config_dir=Path("/tmp/twinbird/office"),
+                config_path=Path("/tmp/twinbird/office/config.json"),
                 daemon_addr="unix:///tmp/office.sock",
                 log_file=Path("/tmp/twinbird/office/daemon.log"),
             )
@@ -319,7 +327,7 @@ class TestMacosRegister:
             register_service(
                 name="office",
                 netbird_bin="/usr/local/bin/netbird",
-                config_dir=Path("/Users/user/.config/twinbird/office"),
+                config_path=Path("/Users/user/.config/twinbird/office/config.json"),
                 daemon_addr="unix:///Users/user/.config/twinbird/office/office.sock",
                 log_file=Path("/Users/user/.config/twinbird/office/daemon.log"),
             )
@@ -351,7 +359,7 @@ class TestMacosRegister:
             register_service(
                 name="office",
                 netbird_bin="/usr/local/bin/netbird",
-                config_dir=Path("/tmp/twinbird/office"),
+                config_path=Path("/tmp/twinbird/office/config.json"),
                 daemon_addr="unix:///tmp/office.sock",
                 log_file=Path("/tmp/twinbird/office/daemon.log"),
             )

@@ -7,6 +7,7 @@ from twinbird.platform import (
     PlatformConfig,
     derive_daemon_addr,
     derive_interface_name,
+    derive_netbird_runtime,
     get_platform_config,
 )
 
@@ -110,6 +111,31 @@ class TestDeriveDaemonAddr:
             addr = derive_daemon_addr("office", config)
             expected = "unix:///home/user/.config/twinbird/office/office.sock"
             assert addr == expected
+
+
+class TestDeriveNetbirdRuntime:
+    def test_linux_non_root_uses_state_dir(self) -> None:
+        config_dir = Path("/home/user/.config/twinbird/office")
+        with (
+            patch("twinbird.platform.sys.platform", "linux"),
+            patch("twinbird.platform._is_root", return_value=False),
+            patch("twinbird.platform.getpass.getuser", return_value="alice"),
+        ):
+            config_path, env = derive_netbird_runtime(config_dir)
+
+        assert config_path == config_dir / "alice" / "personal.json"
+        assert env == {"NB_STATE_DIR": str(config_dir)}
+
+    def test_linux_root_uses_plain_config(self) -> None:
+        config_dir = Path("/root/.config/twinbird/office")
+        with (
+            patch("twinbird.platform.sys.platform", "linux"),
+            patch("twinbird.platform._is_root", return_value=True),
+        ):
+            config_path, env = derive_netbird_runtime(config_dir)
+
+        assert config_path == config_dir / "config.json"
+        assert env == {}
 
 
 class TestDeriveInterfaceName:

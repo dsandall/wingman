@@ -17,6 +17,10 @@ def _mock_platform(tmp_path: Path) -> PlatformConfig:
     return PlatformConfig(config_root=tmp_path, interface_prefix="wt")
 
 
+def _mock_runtime(tmp_path: Path, name: str) -> tuple[Path, dict[str, str]]:
+    return tmp_path / name / "config.json", {}
+
+
 class TestUp:
     def test_starts_and_connects(self, tmp_path: Path) -> None:
         from twinbird.instance import up
@@ -37,6 +41,10 @@ class TestUp:
                 return_value="tcp://127.0.0.1:52200",
             ),
             patch("twinbird.instance.derive_interface_name", return_value="wt7"),
+            patch(
+                "twinbird.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
             patch("twinbird.instance.register_service"),
         ):
             up(
@@ -67,6 +75,10 @@ class TestUp:
             patch("twinbird.instance.is_process_alive", return_value=True),
             patch("twinbird.instance.read_pid", return_value=42),
             patch("twinbird.instance.is_service_registered", return_value=True),
+            patch(
+                "twinbird.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
         ):
             up(
                 name="office",
@@ -97,6 +109,10 @@ class TestUp:
             patch("twinbird.instance.is_process_alive", return_value=True),
             patch("twinbird.instance.read_pid", return_value=42),
             patch("twinbird.instance.is_service_registered", return_value=False),
+            patch(
+                "twinbird.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
             patch("twinbird.instance.register_service", mock_register),
         ):
             up(
@@ -132,6 +148,10 @@ class TestUp:
                 return_value="tcp://127.0.0.1:52200",
             ),
             patch("twinbird.instance.derive_interface_name", return_value="wt7"),
+            patch(
+                "twinbird.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
             patch("twinbird.instance.register_service", mock_register),
         ):
             up(
@@ -143,9 +163,10 @@ class TestUp:
         mock_register.assert_called_once_with(
             name="office",
             netbird_bin="netbird",
-            config_dir=tmp_path / "office",
+            config_path=tmp_path / "office" / "config.json",
             daemon_addr="tcp://127.0.0.1:52200",
             log_file=tmp_path / "office" / "daemon.log",
+            env={},
         )
 
         metadata = read_metadata(tmp_path, "office")

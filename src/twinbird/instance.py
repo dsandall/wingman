@@ -25,6 +25,7 @@ from twinbird.platform import (
     PlatformConfig,
     derive_daemon_addr,
     derive_interface_name,
+    derive_netbird_runtime,
     get_platform_config,
 )
 from twinbird.service import is_service_registered, register_service, unregister_service
@@ -40,6 +41,8 @@ def up(
     netbird_bin = find_netbird_bin()
     platform = get_platform_config()
     config_dir = ensure_instance_dir(platform.config_root, name)
+    config_path, runtime_env = derive_netbird_runtime(config_dir)
+    log_file = config_dir / "daemon.log"
 
     resolved_addr = daemon_addr or derive_daemon_addr(name, platform)
     resolved_iface = interface_name or derive_interface_name(name, platform)
@@ -49,13 +52,13 @@ def up(
         metadata = read_metadata(platform.config_root, name)
         if metadata:
             if not is_service_registered(name):
-                log_file = config_dir / "daemon.log"
                 register_service(
                     name=name,
                     netbird_bin=netbird_bin,
-                    config_dir=config_dir,
+                    config_path=config_path,
                     daemon_addr=metadata.daemon_addr,
                     log_file=log_file,
+                    env=runtime_env,
                 )
                 metadata.service_registered = True
                 write_metadata(platform.config_root, metadata)
@@ -68,15 +71,17 @@ def up(
     if pid:
         remove_pid(platform.config_root, name)
 
-    seed_netbird_config(config_dir, resolved_iface)
+    seed_netbird_config(config_path, resolved_iface)
 
     typer.echo(f"Starting daemon for instance '{name}'...")
     daemon_pid = start_daemon(
         netbird_bin=netbird_bin,
-        config_dir=config_dir,
+        config_path=config_path,
         daemon_addr=resolved_addr,
         config_root=platform.config_root,
         name=name,
+        log_file=log_file,
+        env=runtime_env,
     )
 
     typer.echo(f"Connecting to {management_url}...")
@@ -87,13 +92,13 @@ def up(
         typer.echo(f"Failed to connect: {result.stderr}", err=True)
         raise typer.Exit(1)
 
-    log_file = config_dir / "daemon.log"
     register_service(
         name=name,
         netbird_bin=netbird_bin,
-        config_dir=config_dir,
+        config_path=config_path,
         daemon_addr=resolved_addr,
         log_file=log_file,
+        env=runtime_env,
     )
 
     metadata = InstanceMetadata(

@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -25,16 +26,17 @@ def find_netbird_bin() -> str:
 
 def run_service(
     netbird_bin: str,
-    config_dir: Path,
+    config_path: Path,
     daemon_addr: str,
+    log_file: Path,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.Popen[Any]:
-    log_file = config_dir / "daemon.log"
     cmd = [
         netbird_bin,
         "service",
         "run",
         "--config",
-        str(config_dir / "config.json"),
+        str(config_path),
         "--daemon-addr",
         daemon_addr,
         "--log-file",
@@ -46,6 +48,8 @@ def run_service(
         "stdout": log_handle,
         "stderr": log_handle,
     }
+    if env:
+        kwargs["env"] = {**os.environ, **env}
 
     if sys.platform == "win32":
         CREATE_NEW_PROCESS_GROUP = 0x00000200

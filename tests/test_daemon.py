@@ -28,10 +28,11 @@ class TestStartDaemon:
         ):
             pid = start_daemon(
                 netbird_bin="netbird",
-                config_dir=tmp_path / "office",
+                config_path=tmp_path / "office" / "config.json",
                 daemon_addr="tcp://127.0.0.1:52200",
                 config_root=tmp_path,
                 name="office",
+                log_file=tmp_path / "office" / "daemon.log",
             )
             assert pid == 42
 
@@ -48,10 +49,11 @@ class TestStartDaemon:
             try:
                 start_daemon(
                     netbird_bin="netbird",
-                    config_dir=tmp_path / "office",
+                    config_path=tmp_path / "office" / "config.json",
                     daemon_addr="tcp://127.0.0.1:52200",
                     config_root=tmp_path,
                     name="office",
+                    log_file=tmp_path / "office" / "daemon.log",
                 )
                 raise AssertionError("Should have raised RuntimeError")
             except RuntimeError as e:
