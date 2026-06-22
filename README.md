@@ -13,12 +13,17 @@ Useful when a single host needs to be a peer on two separate NetBird networks at
 NetBird must be installed and on `PATH` first (it's a hard dependency, from the AUR).
 
 ```bash
-git clone https://github.com/dsandall/wingman.git
-cd wingman/packaging/arch
-makepkg -si
+paru -S wingman-git      # or yay -S wingman-git
 ```
 
-This builds the wheel and installs `/usr/bin/wingman` (depends: `python`, `python-typer`, `netbird`).
+`wingman-git` builds from the tip of `master` and installs `/usr/bin/wingman` (depends: `python`, `python-typer`, `netbird`). The AUR package is kept in sync with this repo automatically on every push (see `.github/workflows/aur.yml`).
+
+To build straight from a checkout instead:
+
+```bash
+git clone https://github.com/dsandall/wingman.git
+cd wingman/packaging/arch && makepkg -si
+```
 
 ## Usage
 

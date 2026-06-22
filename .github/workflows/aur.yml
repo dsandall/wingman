@@ -1,0 +1,35 @@
+name: Publish to AUR
+
+# Single source of truth: this repo. On every push to master the AUR
+# `wingman-git` package (PKGBUILD + .SRCINFO) is regenerated and pushed to the
+# AUR, so `paru -S wingman-git` always tracks master.
+#
+# One-time setup (see README / packaging notes):
+#   1. Create an AUR account and add an SSH public key to it.
+#   2. Add the matching private key as the repo secret AUR_SSH_PRIVATE_KEY.
+#   3. Add the repo variable AUR_ENABLED=true to turn this on.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Skips cleanly until AUR_ENABLED is set, so it never fails before setup.
+    if: ${{ vars.AUR_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so the PKGBUILD pkgver() can count commits
+
+      - name: Publish wingman-git to the AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
+        with:
+          pkgname: wingman-git
+          pkgbuild: ./packaging/arch/PKGBUILD
+          commit_username: dsandall
+          commit_email: thebudman6@proton.me
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: "wingman-git: sync from master @ ${{ github.sha }}"
+          ssh_keyscan_types: rsa,ed25519
