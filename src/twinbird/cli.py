@@ -88,6 +88,16 @@ def status(
     inst.status(name)
 
 
+@app.command()
+def peers(
+    name: Annotated[
+        str | None, typer.Argument(help="Instance name (omit for all)")
+    ] = None,
+) -> None:
+    """List peers and their connection status for one or all instances."""
+    inst.peers(name)
+
+
 @app.command(name="list")
 def list_cmd() -> None:
     """List all known instances and their state."""

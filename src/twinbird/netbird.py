@@ -97,6 +97,9 @@ def run_down(
 def run_status(
     netbird_bin: str,
     daemon_addr: str,
+    detail: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [netbird_bin, "status", "--daemon-addr", daemon_addr]
+    if detail:
+        cmd.append("--detail")
     return subprocess.run(cmd, capture_output=True, text=True, check=False)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import typer
@@ -184,6 +185,67 @@ def _show_instance_status(name: str, platform: PlatformConfig) -> None:
         typer.echo(result.stdout or result.stderr)
     else:
         typer.echo(f"--- {name} (stopped) ---")
+
+
+# A peer block in `netbird status --detail` looks like:
+#   lynx.netbird.cloud:
+#     NetBird IP: 100.64.135.69
+#     Status: Connected
+# Header = indented FQDN ending in ':'; status = indented "Status: <value>".
+_PEER_HEADER_RE = re.compile(r"^\s+(\S+\.\S+):$")
+_PEER_STATUS_RE = re.compile(r"^\s+Status:\s*(\S+)")
+
+
+def _parse_peer_lines(detail_output: str) -> list[tuple[str, str]]:
+    """Extract (short_name, status) pairs from `netbird status --detail` output."""
+    peers: list[tuple[str, str]] = []
+    current: str | None = None
+    for line in detail_output.splitlines():
+        header = _PEER_HEADER_RE.match(line)
+        if header:
+            current = header.group(1).split(".", 1)[0]
+            continue
+        status = _PEER_STATUS_RE.match(line)
+        if status and current is not None:
+            peers.append((current, status.group(1)))
+            current = None
+    return peers
+
+
+def _show_instance_peers(name: str, platform: PlatformConfig) -> None:
+    metadata = read_metadata(platform.config_root, name)
+    if metadata is None:
+        typer.echo(f"{name}: not found")
+        return
+
+    netbird_bin = find_netbird_bin()
+    result = run_status(netbird_bin, metadata.daemon_addr, detail=True)
+    if result.returncode != 0:
+        typer.echo(f"--- {name} (unreachable) ---")
+        return
+
+    typer.echo(f"--- {name} ---")
+    peers = _parse_peer_lines(result.stdout)
+    if not peers:
+        typer.echo("(no peers)")
+        return
+    for peer_name, status in peers:
+        typer.echo(f"{peer_name} — {status}")
+
+
+def peers(name: str | None = None) -> None:
+    platform = get_platform_config()
+
+    if name:
+        _show_instance_peers(name, platform)
+        return
+
+    instances = list_instances(platform.config_root)
+    if not instances:
+        typer.echo("No instances found.")
+        return
+    for inst_name in instances:
+        _show_instance_peers(inst_name, platform)
 
 
 def list_all() -> None:

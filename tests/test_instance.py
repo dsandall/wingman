@@ -326,3 +326,32 @@ class TestListAll:
         captured = capsys.readouterr()
         assert "office: running" in captured.out
         assert "persistent" not in captured.out
+
+
+class TestParsePeerLines:
+    def test_parses_name_and_status(self) -> None:
+        from twinbird.instance import _parse_peer_lines
+
+        detail = """Peers detail:
+ lynx.netbird.cloud:
+  NetBird IP: 100.64.135.69
+  Status: Connected
+ cubert.netbird.cloud:
+  NetBird IP: 100.64.18.8
+  Status: Idle
+"""
+        assert _parse_peer_lines(detail) == [
+            ("lynx", "Connected"),
+            ("cubert", "Idle"),
+        ]
+
+    def test_domain_agnostic_short_name(self) -> None:
+        from twinbird.instance import _parse_peer_lines
+
+        detail = " host-a.netbird.example.com:\n  Status: Connected\n"
+        assert _parse_peer_lines(detail) == [("host-a", "Connected")]
+
+    def test_no_peers(self) -> None:
+        from twinbird.instance import _parse_peer_lines
+
+        assert _parse_peer_lines("Peers count: 0/0 Connected\n") == []
