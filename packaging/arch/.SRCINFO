@@ -13,6 +13,7 @@ pkgbase = wingman-git
 	depends = python
 	depends = python-typer
 	depends = netbird
+	depends = libcap
 	provides = wingman
 	conflicts = wingman
 	source = wingman::git+https://github.com/dsandall/wingman.git
