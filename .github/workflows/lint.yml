@@ -63,12 +63,44 @@ jobs:
       - name: Run tests
         run: uv run pytest -v
 
+  package:
+    # Build the Arch package to catch PKGBUILD/packaging regressions. This only
+    # builds the wheel and assembles the package — it never runs the app or
+    # touches netbird/login.
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install minimal Arch build deps
+        # Only the makedepends — all in the official 'extra' repo, no AUR. The
+        # runtime deps (netbird is AUR, plus libcap/python-typer) aren't needed
+        # to build the wheel, so the build runs with --nodeps below.
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git python-build python-installer python-wheel python-hatchling
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so pkgver() can count commits
+
+      - name: makepkg build (no install)
+        run: |
+          git config --system --add safe.directory '*'
+          useradd -m builder
+          # Build from this checkout, not remote master, so the build reflects
+          # the commit under test.
+          sed -i "s|git+https://github.com/dsandall/wingman.git|git+file://$PWD|" \
+            packaging/arch/PKGBUILD
+          chown -R builder "$PWD"
+          runuser -u builder -- bash -c \
+            "cd '$PWD/packaging/arch' && makepkg --nodeps --clean --cleanbuild"
+
   check:
     if: always()
     needs:
       - pre-commit
       - pyright
       - test
+      - package
 
     runs-on: ubuntu-latest
 

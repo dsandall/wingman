@@ -23,6 +23,19 @@ jobs:
         with:
           fetch-depth: 0  # full history so the PKGBUILD pkgver() can count commits
 
+      - name: Stamp the computed version into the PKGBUILD
+        # The deploy action regenerates .SRCINFO with `makepkg --printsrcinfo`,
+        # which does NOT run pkgver() (it never fetches the git source), so it
+        # would otherwise publish the static `pkgver=0.1.4.r0.g0000000`
+        # placeholder. Replicate pkgver() here and bake the real value in so the
+        # AUR page and `paru` search show the true version. (pkgver() still runs
+        # at build time on the user's machine, recomputing the same value.)
+        run: |
+          base=$(grep -m1 '^version' pyproject.toml | sed -E 's/.*"(.*)".*/\1/')
+          pkgver="${base}.r$(git rev-list --count HEAD).g$(git rev-parse --short=7 HEAD)"
+          sed -i -E "s/^pkgver=.*/pkgver=${pkgver}/" packaging/arch/PKGBUILD
+          echo "Stamped pkgver=${pkgver}"
+
       - name: Publish wingman-git to the AUR
         uses: KSXGitHub/github-actions-deploy-aur@v2.7.2
         with:
