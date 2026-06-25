@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from wingman.netbird import find_netbird_bin
+from wingman.netbird import find_netbird_bin, run_up
 
 
 class TestFindNetbirdBin:
@@ -41,3 +41,37 @@ class TestFindNetbirdBin:
                 raise AssertionError("Should have raised FileNotFoundError")
             except FileNotFoundError as e:
                 assert "WINGMAN_NETBIRD_BIN" in str(e)
+
+
+class TestRunUp:
+    def test_passes_profile_and_state_env(self) -> None:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+            run_up(
+                "netbird",
+                "unix:///tmp/work.sock",
+                "https://mgmt.example.com",
+                interface_name="wt30",
+                profile="personal",
+                env={"NB_STATE_DIR": "/state/work"},
+            )
+
+        cmd = mock_run.call_args.args[0]
+        assert "--profile" in cmd
+        assert cmd[cmd.index("--profile") + 1] == "personal"
+        passed_env = mock_run.call_args.kwargs["env"]
+        assert passed_env["NB_STATE_DIR"] == "/state/work"
+        # No setup key => interactive flow that streams output (not captured)
+        assert "capture_output" not in mock_run.call_args.kwargs
+
+    def test_omits_profile_when_none(self) -> None:
+        with patch("subprocess.run", return_value=MagicMock(returncode=0)) as mock_run:
+            run_up(
+                "netbird",
+                "unix:///tmp/work.sock",
+                "https://mgmt.example.com",
+                setup_key="KEY123",
+            )
+
+        cmd = mock_run.call_args.args[0]
+        assert "--profile" not in cmd
+        assert mock_run.call_args.kwargs["env"] is None

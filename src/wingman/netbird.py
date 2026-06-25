@@ -67,6 +67,8 @@ def run_up(
     management_url: str,
     setup_key: str | None = None,
     interface_name: str | None = None,
+    profile: str | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     cmd = [
         netbird_bin,
@@ -80,10 +82,19 @@ def run_up(
         cmd += ["--setup-key", setup_key]
     if interface_name:
         cmd += ["--interface-name", interface_name]
+    # NetBird 0.72+ selects a named profile; without --profile the client falls
+    # back to the user's *default* active profile (in ~/.config/netbird), which
+    # does not exist inside the instance's isolated NB_STATE_DIR. Pass both the
+    # profile and the runtime env so the client and daemon agree on the state.
+    if profile:
+        cmd += ["--profile", profile]
+    run_env = {**os.environ, **env} if env else None
     if setup_key:
-        return subprocess.run(cmd, capture_output=True, text=True, check=False)
+        return subprocess.run(
+            cmd, capture_output=True, text=True, check=False, env=run_env
+        )
     # No setup key = interactive OAuth flow, let user see output
-    return subprocess.run(cmd, text=True, check=False)
+    return subprocess.run(cmd, text=True, check=False, env=run_env)
 
 
 def run_down(

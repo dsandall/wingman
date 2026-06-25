@@ -225,9 +225,7 @@ class TestLinuxRegister:
             "--daemon-addr unix:///home/user/.config/wingman/office/office.sock"
             in content
         )
-        assert (
-            'Environment="NB_STATE_DIR=/home/user/.config/wingman/office"' in content
-        )
+        assert 'Environment="NB_STATE_DIR=/home/user/.config/wingman/office"' in content
         assert "WantedBy=default.target" in content
 
         assert mock_run.call_count == 2  # daemon-reload + enable

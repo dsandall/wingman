@@ -85,9 +85,21 @@ def up(
         env=runtime_env,
     )
 
+    # NetBird namespaces profiles in a per-user subdir (e.g. <state>/<user>/
+    # personal.json); the profile name is that file's stem. The flat root-style
+    # config.json (config_path.parent == config_dir) predates profiles and needs
+    # no --profile selector.
+    profile = config_path.stem if config_path.parent != config_dir else None
+
     typer.echo(f"Connecting to {management_url}...")
     result = run_up(
-        netbird_bin, resolved_addr, management_url, setup_key, resolved_iface
+        netbird_bin,
+        resolved_addr,
+        management_url,
+        setup_key,
+        resolved_iface,
+        profile=profile,
+        env=runtime_env,
     )
     if result.returncode != 0:
         typer.echo(f"Failed to connect: {result.stderr}", err=True)

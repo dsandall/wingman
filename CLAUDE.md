@@ -35,7 +35,7 @@ uv run wingman --help     # Run CLI
 
 - All platform branching is in `platform.py` — other modules are OS-agnostic
 - `platform.py` now also resolves NetBird runtime details per instance (`config` path + runtime env), including Linux non-root `NB_STATE_DIR` handling
-- `netbird.py` shells out to NetBird and supports runtime env injection for daemon startup
+- `netbird.py` shells out to NetBird and supports runtime env injection for daemon startup; `run_up` also forwards `NB_STATE_DIR` and selects the instance's `--profile` (NetBird 0.72+) so the client doesn't fall back to the user's default profile
 - `instance.py` orchestrates but delegates to `config`, `daemon`, `netbird`, and `service` modules
 - Linux user systemd units include required runtime environment variables (for example `NB_STATE_DIR`) when persistence is registered
 - Daemon is managed via PID files with stale-PID detection
