@@ -28,6 +28,12 @@ jobs:
         with:
           pkgname: wingman-git
           pkgbuild: ./packaging/arch/PKGBUILD
+          # The PKGBUILD's `install=` scriptlet must live next to PKGBUILD in the
+          # AUR repo or `makepkg` fails. The action only pushes PKGBUILD/.SRCINFO
+          # by default, so list it here; `cp -t` flattens it to its basename at
+          # the AUR repo root, matching `install=wingman-git.install`. (The pacman
+          # hook needs no entry — it's installed in package() from the git source.)
+          assets: ./packaging/arch/wingman-git.install
           commit_username: dsandall
           commit_email: thebudman6@proton.me
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
