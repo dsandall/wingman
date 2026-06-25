@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from datetime import datetime, timezone
 
 import typer
@@ -21,15 +22,44 @@ from wingman.daemon import (
     start_daemon,
     stop_daemon,
 )
-from wingman.netbird import find_netbird_bin, run_down, run_status, run_up
+from wingman.netbird import (
+    find_netbird_bin,
+    has_net_admin_capability,
+    run_down,
+    run_status,
+    run_up,
+)
 from wingman.platform import (
     PlatformConfig,
     derive_daemon_addr,
     derive_interface_name,
     derive_netbird_runtime,
     get_platform_config,
+    is_root,
 )
 from wingman.service import is_service_registered, register_service, unregister_service
+
+
+def _require_kernel_iface_capability(netbird_bin: str) -> None:
+    """Block a rootless `up` early when netbird can't create the WG interface.
+
+    A non-root daemon needs CAP_NET_ADMIN on the netbird binary; without it the
+    daemon starts but `netbird up` fails deep inside with "link add: operation
+    not permitted", leaving an orphaned daemon. Fail fast with the one-time fix
+    instead. Root always has the capability, and an undeterminable result (no
+    `getcap`) is not treated as missing.
+    """
+    if is_root() or has_net_admin_capability(netbird_bin) is not False:
+        return
+    target = shutil.which(netbird_bin) or netbird_bin
+    typer.echo(
+        "netbird lacks CAP_NET_ADMIN, so a rootless daemon can't create the "
+        "WireGuard interface. Grant it once (persists until netbird is "
+        f"upgraded):\n  sudo setcap 'cap_net_admin,cap_net_raw+eip' {target}\n"
+        "then re-run. (The packaged install configures this for you.)",
+        err=True,
+    )
+    raise typer.Exit(1)
 
 
 def up(
@@ -40,6 +70,7 @@ def up(
     daemon_addr: str | None = None,
 ) -> None:
     netbird_bin = find_netbird_bin()
+    _require_kernel_iface_capability(netbird_bin)
     platform = get_platform_config()
     config_dir = ensure_instance_dir(platform.config_root, name)
     config_path, runtime_env = derive_netbird_runtime(config_dir)

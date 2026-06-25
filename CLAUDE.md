@@ -37,8 +37,9 @@ uv run wingman --help     # Run CLI
 - `platform.py` now also resolves NetBird runtime details per instance (`config` path + runtime env), including Linux non-root `NB_STATE_DIR` handling
 - `netbird.py` shells out to NetBird and supports runtime env injection for daemon startup; `run_up` also forwards `NB_STATE_DIR` and selects the instance's `--profile` (NetBird 0.72+) so the client doesn't fall back to the user's default profile
 - `instance.py` orchestrates but delegates to `config`, `daemon`, `netbird`, and `service` modules
-- Linux user systemd units include required runtime environment variables (for example `NB_STATE_DIR`) when persistence is registered
+- Linux user systemd units include required runtime environment variables (for example `NB_STATE_DIR`) when persistence is registered; after registering a `--user` unit, `service.py` points the user at `loginctl enable-linger` if linger is off (a `--user` unit only starts on boot once linger is enabled)
 - Daemon is managed via PID files with stale-PID detection
+- The recommended Linux setup is **rootless**: the daemon runs as the user (config under `~/.config/wingman`, no `sudo` for everyday commands), with `CAP_NET_ADMIN` granted to the `netbird` binary so it can create the WireGuard interface. `instance.py` preflights this (`_require_kernel_iface_capability`) and aborts a rootless `up` with the exact `setcap` command when the capability is missing. See `packaging/` for the pacman hook that keeps the capability applied across netbird upgrades
 
 ## Environment Variables
 

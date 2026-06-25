@@ -30,6 +30,7 @@ class TestUp:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.start_daemon", return_value=42),
             patch("wingman.instance.read_pid", return_value=None),
             patch(
@@ -72,6 +73,7 @@ class TestUp:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_service_registered", return_value=True),
@@ -106,6 +108,7 @@ class TestUp:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_service_registered", return_value=False),
@@ -137,6 +140,7 @@ class TestUp:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.start_daemon", return_value=42),
             patch("wingman.instance.read_pid", return_value=None),
             patch(
@@ -189,6 +193,7 @@ class TestDown:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
@@ -232,6 +237,7 @@ class TestDown:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
@@ -263,6 +269,7 @@ class TestDown:
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=False),
             patch("wingman.instance.unregister_service", mock_unregister),
@@ -386,3 +393,35 @@ class TestPeerOrdering:
         # Offline statuses are left uncolored.
         assert _styled_status("Idle") == "Idle"
         assert _styled_status("Disconnected") == "Disconnected"
+
+
+class TestRequireKernelIfaceCapability:
+    def test_blocks_rootless_without_capability(self) -> None:
+        import typer
+
+        from wingman.instance import _require_kernel_iface_capability
+
+        with (
+            patch("wingman.instance.is_root", return_value=False),
+            patch("wingman.instance.has_net_admin_capability", return_value=False),
+        ):
+            try:
+                _require_kernel_iface_capability("netbird")
+                raise AssertionError("expected typer.Exit")
+            except typer.Exit:
+                pass
+
+    def test_allows_root(self) -> None:
+        from wingman.instance import _require_kernel_iface_capability
+
+        with patch("wingman.instance.is_root", return_value=True):
+            _require_kernel_iface_capability("netbird")  # must not raise
+
+    def test_allows_when_undeterminable(self) -> None:
+        from wingman.instance import _require_kernel_iface_capability
+
+        with (
+            patch("wingman.instance.is_root", return_value=False),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
+        ):
+            _require_kernel_iface_capability("netbird")  # must not raise

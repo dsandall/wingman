@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from wingman.netbird import find_netbird_bin, run_up
+from wingman.netbird import find_netbird_bin, has_net_admin_capability, run_up
 
 
 class TestFindNetbirdBin:
@@ -75,3 +75,29 @@ class TestRunUp:
         cmd = mock_run.call_args.args[0]
         assert "--profile" not in cmd
         assert mock_run.call_args.kwargs["env"] is None
+
+
+class TestHasNetAdminCapability:
+    def test_present(self) -> None:
+        with (
+            patch("shutil.which", side_effect=lambda c: f"/usr/bin/{c}"),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(
+                    returncode=0,
+                    stdout="/usr/bin/netbird cap_net_admin,cap_net_raw=eip",
+                ),
+            ),
+        ):
+            assert has_net_admin_capability("netbird") is True
+
+    def test_absent(self) -> None:
+        with (
+            patch("shutil.which", side_effect=lambda c: f"/usr/bin/{c}"),
+            patch("subprocess.run", return_value=MagicMock(returncode=0, stdout="")),
+        ):
+            assert has_net_admin_capability("netbird") is False
+
+    def test_no_getcap_is_undeterminable(self) -> None:
+        with patch("shutil.which", return_value=None):
+            assert has_net_admin_capability("netbird") is None

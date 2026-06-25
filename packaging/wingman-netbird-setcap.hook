@@ -1,0 +1,15 @@
+# Reapply CAP_NET_ADMIN to the netbird binary so rootless wingman instances can
+# create their WireGuard interfaces. pacman strips file capabilities on every
+# (re)install of the netbird package, so this runs after each netbird transaction.
+#
+# Install to: /usr/share/libalpm/hooks/wingman-netbird-setcap.hook
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/bin/netbird
+
+[Action]
+Description = Granting CAP_NET_ADMIN to netbird for rootless wingman instances...
+When = PostTransaction
+Exec = /usr/bin/setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird

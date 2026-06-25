@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import getpass
 import os
 import shlex
 import subprocess
@@ -212,6 +213,18 @@ def _systemd_unit_dir() -> Path:
     return Path.home() / ".config" / "systemd" / "user"
 
 
+def _linger_enabled() -> bool | None:
+    """Whether the current user has systemd linger on (services run at boot).
+
+    None when it can't be determined (no loginctl). A --user unit only starts on
+    boot — rather than just at login — when linger is enabled.
+    """
+    result = _try_run(["loginctl", "show-user", getpass.getuser(), "-p", "Linger"])
+    if result is None or result.returncode != 0:
+        return None
+    return result.stdout.strip().lower().endswith("=yes")
+
+
 def _systemd_scope() -> tuple[Path, list[str], str]:
     """Return (unit_dir, systemctl_prefix, wanted_by) for the active scope.
 
@@ -294,6 +307,16 @@ def _register_linux(
         )
         typer.echo(
             f"Warning: failed to register service for '{name}': {stderr}",
+            err=True,
+        )
+        return
+
+    # A --user unit only starts at boot once linger is enabled; otherwise it
+    # waits for an interactive login. Point the user at the one-time fix.
+    if wanted_by == "default.target" and _linger_enabled() is False:
+        typer.echo(
+            f"Note: run once so '{name}' starts on boot without a login session:"
+            f"\n  sudo loginctl enable-linger {getpass.getuser()}",
             err=True,
         )
 

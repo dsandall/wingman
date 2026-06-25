@@ -24,6 +24,25 @@ def find_netbird_bin() -> str:
     return bin_path
 
 
+def has_net_admin_capability(netbird_bin: str) -> bool | None:
+    """Whether the netbird binary carries CAP_NET_ADMIN as a file capability.
+
+    This is what lets a *non-root* daemon create the WireGuard interface. Returns
+    None when it can't be determined (e.g. `getcap` is unavailable), so callers
+    can choose not to block on an unknown rather than guessing wrong.
+    """
+    getcap = shutil.which("getcap")
+    if getcap is None:
+        return None
+    target = shutil.which(netbird_bin) or netbird_bin
+    result = subprocess.run(
+        [getcap, target], capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        return None
+    return "cap_net_admin" in result.stdout.lower()
+
+
 def run_service(
     netbird_bin: str,
     config_path: Path,

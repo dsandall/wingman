@@ -228,10 +228,11 @@ class TestLinuxRegister:
         assert 'Environment="NB_STATE_DIR=/home/user/.config/wingman/office"' in content
         assert "WantedBy=default.target" in content
 
-        assert mock_run.call_count == 2  # daemon-reload + enable
+        assert mock_run.call_count == 3  # daemon-reload + enable + linger probe
         cmds = [c[0][0] for c in mock_run.call_args_list]
         assert ["systemctl", "--user", "daemon-reload"] in cmds
         assert ["systemctl", "--user", "enable", "wingman-office.service"] in cmds
+        assert any(c[:2] == ["loginctl", "show-user"] for c in cmds)
 
     def test_register_warns_on_failure(self, tmp_path: Path, capsys) -> None:
         from wingman.service import register_service

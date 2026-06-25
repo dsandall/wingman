@@ -20,6 +20,11 @@ def _is_root() -> bool:
     return False
 
 
+def is_root() -> bool:
+    """Public accessor for root/elevated status (platform branching lives here)."""
+    return _is_root()
+
+
 def get_platform_config() -> PlatformConfig:
     override = os.environ.get("WINGMAN_CONFIG_DIR")
     if override:
