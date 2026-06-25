@@ -224,6 +224,25 @@ def _parse_peer_lines(detail_output: str) -> list[tuple[str, str]]:
     return peers
 
 
+# Display ordering within a network: connected first, then connecting, then the
+# rest (NetBird reports offline/lazy peers as "Idle", others as "Disconnected").
+_STATUS_RANK = {"connected": 0, "connecting": 1}
+_STATUS_COLOR = {
+    "connected": typer.colors.GREEN,
+    "connecting": typer.colors.YELLOW,
+}
+
+
+def _peer_sort_key(peer: tuple[str, str]) -> tuple[int, str]:
+    name, status = peer
+    return (_STATUS_RANK.get(status.lower(), 2), name.lower())
+
+
+def _styled_status(status: str) -> str:
+    color = _STATUS_COLOR.get(status.lower())
+    return typer.style(status, fg=color) if color else status
+
+
 def _show_instance_peers(name: str, platform: PlatformConfig) -> None:
     metadata = read_metadata(platform.config_root, name)
     if metadata is None:
@@ -241,8 +260,8 @@ def _show_instance_peers(name: str, platform: PlatformConfig) -> None:
     if not peers:
         typer.echo("(no peers)")
         return
-    for peer_name, status in peers:
-        typer.echo(f"{peer_name} — {status}")
+    for peer_name, status in sorted(peers, key=_peer_sort_key):
+        typer.echo(f"{peer_name} — {_styled_status(status)}")
 
 
 def peers(name: str | None = None) -> None:

@@ -355,3 +355,34 @@ class TestParsePeerLines:
         from wingman.instance import _parse_peer_lines
 
         assert _parse_peer_lines("Peers count: 0/0 Connected\n") == []
+
+
+class TestPeerOrdering:
+    def test_connected_then_connecting_then_rest(self) -> None:
+        from wingman.instance import _peer_sort_key
+
+        peers = [
+            ("zeta", "Idle"),
+            ("bravo", "Connected"),
+            ("yankee", "Connecting"),
+            ("alpha", "Connected"),
+            ("mike", "Disconnected"),
+        ]
+        ordered = [name for name, _ in sorted(peers, key=_peer_sort_key)]
+        # Connected (alphabetical), then Connecting, then the rest (alphabetical).
+        assert ordered == ["alpha", "bravo", "yankee", "mike", "zeta"]
+
+    def test_status_colors(self) -> None:
+        import typer
+
+        from wingman.instance import _styled_status
+
+        assert _styled_status("Connected") == typer.style(
+            "Connected", fg=typer.colors.GREEN
+        )
+        assert _styled_status("Connecting") == typer.style(
+            "Connecting", fg=typer.colors.YELLOW
+        )
+        # Offline statuses are left uncolored.
+        assert _styled_status("Idle") == "Idle"
+        assert _styled_status("Disconnected") == "Disconnected"
