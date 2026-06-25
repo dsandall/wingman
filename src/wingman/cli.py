@@ -5,6 +5,10 @@ import typer
 
 from wingman import instance as inst
 
+# NetBird's public cloud. Only self-hosted deployments need to override this,
+# so it's a default rather than a required flag.
+DEFAULT_MANAGEMENT_URL = "https://api.netbird.io:443"
+
 
 def _version_callback(value: bool) -> None:
     if value:
@@ -38,10 +42,10 @@ def main(
 def up(
     name: str = typer.Argument(help="Instance name"),
     management_url: str = typer.Option(
-        ...,
+        DEFAULT_MANAGEMENT_URL,
         "--management-url",
         envvar="WINGMAN_MANAGEMENT_URL",
-        help="NetBird management URL",
+        help="NetBird management URL (defaults to the public cloud)",
     ),
     setup_key: Annotated[
         str | None,
