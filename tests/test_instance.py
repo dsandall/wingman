@@ -203,17 +203,17 @@ class TestDown:
             down("office")
 
     def test_not_found(self, tmp_path: Path) -> None:
+        import typer
+
         from wingman.instance import down
 
         platform = _mock_platform(tmp_path)
 
-        import click
-
         with patch("wingman.instance.get_platform_config", return_value=platform):
             try:
                 down("nonexistent")
-                raise AssertionError("Should have raised SystemExit")
-            except (SystemExit, click.exceptions.Exit):
+                raise AssertionError("Should have raised typer.Exit")
+            except (SystemExit, typer.Exit):
                 pass
 
     def test_unregisters_service_on_down(self, tmp_path: Path) -> None:
