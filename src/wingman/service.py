@@ -81,6 +81,58 @@ def is_service_registered(name: str) -> bool:
         return _is_registered_linux(name)
 
 
+def start_service(name: str) -> bool | None:
+    """Start a registered instance via its service manager.
+
+    Returns True on success, False if the manager tried and failed, and None
+    when the manager can't run the daemon now (no systemd, or a platform whose
+    register step doesn't double as a start) — the caller then runs the daemon
+    directly. Only Linux/systemd is service-managed today; macOS/Windows fall
+    back to the direct-daemon path, preserving existing behavior.
+    """
+    if sys.platform in ("win32", "darwin"):
+        return None
+    _, systemctl, _ = _systemd_scope()
+    result = _try_run([*systemctl, "start", f"wingman-{name}.service"])
+    if result is None:
+        return None
+    return result.returncode == 0
+
+
+def stop_service(name: str) -> None:
+    """Stop a service-managed instance (no-op where start_service returns None)."""
+    if sys.platform in ("win32", "darwin"):
+        return
+    _, systemctl, _ = _systemd_scope()
+    _try_run([*systemctl, "stop", f"wingman-{name}.service"])
+
+
+def is_service_active(name: str) -> bool:
+    """Whether the service manager currently reports the instance as running."""
+    if sys.platform in ("win32", "darwin"):
+        return False
+    _, systemctl, _ = _systemd_scope()
+    result = _try_run([*systemctl, "is-active", f"wingman-{name}.service"])
+    return result is not None and result.returncode == 0
+
+
+def service_main_pid(name: str) -> int | None:
+    """The PID systemd tracks for the instance's daemon, or None if not running."""
+    if sys.platform in ("win32", "darwin"):
+        return None
+    _, systemctl, _ = _systemd_scope()
+    result = _try_run(
+        [*systemctl, "show", "-p", "MainPID", "--value", f"wingman-{name}.service"]
+    )
+    if result is None or result.returncode != 0:
+        return None
+    try:
+        pid = int(result.stdout.strip())
+    except ValueError:
+        return None
+    return pid or None  # systemd reports 0 when the unit isn't running
+
+
 # --- Windows: Task Scheduler ---
 
 _TASK_XML_TEMPLATE = """\

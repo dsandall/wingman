@@ -33,6 +33,10 @@ class TestUp:
             patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.start_daemon", return_value=42),
             patch("wingman.instance.read_pid", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
+            patch("wingman.instance.start_service", return_value=True),
+            patch("wingman.instance._wait_daemon_ready", return_value=True),
+            patch("wingman.instance.service_main_pid", return_value=42),
             patch(
                 "wingman.instance.run_up",
                 return_value=MagicMock(returncode=0, stdout="Connected"),
@@ -59,6 +63,82 @@ class TestUp:
         assert metadata.name == "office"
         assert metadata.pid == 42
 
+    def test_managed_start_uses_systemd_not_direct_daemon(self, tmp_path: Path) -> None:
+        from wingman.instance import up
+
+        platform = _mock_platform(tmp_path)
+        mock_start_daemon = MagicMock(return_value=99)
+        mock_start_service = MagicMock(return_value=True)
+
+        with (
+            patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.read_pid", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
+            patch("wingman.instance.register_service"),
+            patch("wingman.instance.start_service", mock_start_service),
+            patch("wingman.instance._wait_daemon_ready", return_value=True),
+            patch("wingman.instance.service_main_pid", return_value=1234),
+            patch("wingman.instance.start_daemon", mock_start_daemon),
+            patch(
+                "wingman.instance.run_up",
+                return_value=MagicMock(returncode=0, stdout="Connected"),
+            ),
+            patch(
+                "wingman.instance.derive_daemon_addr",
+                return_value="unix:///tmp/office.sock",
+            ),
+            patch("wingman.instance.derive_interface_name", return_value="wt7"),
+            patch(
+                "wingman.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
+        ):
+            up(name="office", management_url="https://m", setup_key="K")
+
+        mock_start_service.assert_called_once_with("office")
+        mock_start_daemon.assert_not_called()  # systemd owns the process
+        metadata = read_metadata(tmp_path, "office")
+        assert metadata is not None
+        assert metadata.pid == 1234  # systemd MainPID, not a direct PID
+
+    def test_falls_back_to_direct_daemon_without_systemd(self, tmp_path: Path) -> None:
+        from wingman.instance import up
+
+        platform = _mock_platform(tmp_path)
+        mock_start_daemon = MagicMock(return_value=77)
+
+        with (
+            patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.read_pid", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
+            patch("wingman.instance.register_service"),
+            patch("wingman.instance.start_service", return_value=None),
+            patch("wingman.instance.start_daemon", mock_start_daemon),
+            patch(
+                "wingman.instance.run_up",
+                return_value=MagicMock(returncode=0, stdout="Connected"),
+            ),
+            patch(
+                "wingman.instance.derive_daemon_addr",
+                return_value="unix:///tmp/office.sock",
+            ),
+            patch("wingman.instance.derive_interface_name", return_value="wt7"),
+            patch(
+                "wingman.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
+        ):
+            up(name="office", management_url="https://m", setup_key="K")
+
+        mock_start_daemon.assert_called_once()  # no systemd → supervise directly
+        metadata = read_metadata(tmp_path, "office")
+        assert metadata is not None
+        assert metadata.pid == 77
+
     def test_already_running(self, tmp_path: Path, capsys) -> None:
         from wingman.instance import up
 
@@ -74,6 +154,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_service_registered", return_value=True),
@@ -109,6 +190,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_service_registered", return_value=False),
@@ -143,6 +225,10 @@ class TestUp:
             patch("wingman.instance.has_net_admin_capability", return_value=None),
             patch("wingman.instance.start_daemon", return_value=42),
             patch("wingman.instance.read_pid", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
+            patch("wingman.instance.start_service", return_value=True),
+            patch("wingman.instance._wait_daemon_ready", return_value=True),
+            patch("wingman.instance.service_main_pid", return_value=42),
             patch(
                 "wingman.instance.run_up",
                 return_value=MagicMock(returncode=0, stdout="Connected"),
@@ -194,6 +280,7 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
@@ -238,6 +325,7 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
@@ -247,6 +335,40 @@ class TestDown:
             down("office")
 
         mock_unregister.assert_called_once_with("office")
+
+    def test_stops_systemd_service_when_active(self, tmp_path: Path) -> None:
+        from wingman.instance import down
+
+        platform = _mock_platform(tmp_path)
+        ensure_instance_dir(tmp_path, "office")
+        meta = InstanceMetadata(
+            "office",
+            "url",
+            "unix:///tmp/office.sock",
+            "wt7",
+            0,
+            "t",
+            service_registered=True,
+        )
+        write_metadata(tmp_path, meta)
+        mock_stop_service = MagicMock()
+        mock_stop_daemon = MagicMock()
+
+        with (
+            patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=True),
+            patch("wingman.instance.read_pid", return_value=None),
+            patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
+            patch("wingman.instance.stop_service", mock_stop_service),
+            patch("wingman.instance.stop_daemon", mock_stop_daemon),
+            patch("wingman.instance.unregister_service"),
+        ):
+            down("office")
+
+        mock_stop_service.assert_called_once_with("office")
+        mock_stop_daemon.assert_not_called()  # no supervised PID to kill
 
     def test_unregisters_service_on_stale_pid(self, tmp_path: Path) -> None:
         from wingman.instance import down
@@ -270,8 +392,10 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=False),
+            patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
             patch("wingman.instance.unregister_service", mock_unregister),
         ):
             down("office")
@@ -304,7 +428,36 @@ class TestListAll:
 
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.is_process_alive", return_value=True),
+            patch("wingman.instance.is_service_registered", return_value=True),
+        ):
+            list_all()
+
+        captured = capsys.readouterr()
+        assert "office: running (persistent)" in captured.out
+
+    def test_systemd_active_counts_as_running_without_pid(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        from wingman.instance import list_all
+
+        platform = _mock_platform(tmp_path)
+        ensure_instance_dir(tmp_path, "office")
+        meta = InstanceMetadata(
+            "office",
+            "url",
+            "unix:///tmp/office.sock",
+            "wt7",
+            0,
+            "t",
+            service_registered=True,
+        )
+        write_metadata(tmp_path, meta)
+        # No PID file — systemd owns the process.
+        with (
+            patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.is_service_active", return_value=True),
             patch("wingman.instance.is_service_registered", return_value=True),
         ):
             list_all()
@@ -325,6 +478,7 @@ class TestListAll:
 
         with (
             patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.is_service_registered", return_value=False),
         ):

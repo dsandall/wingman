@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shutil
+import time
 from datetime import datetime, timezone
 
 import typer
@@ -37,7 +38,15 @@ from wingman.platform import (
     get_platform_config,
     is_root,
 )
-from wingman.service import is_service_registered, register_service, unregister_service
+from wingman.service import (
+    is_service_active,
+    is_service_registered,
+    register_service,
+    service_main_pid,
+    start_service,
+    stop_service,
+    unregister_service,
+)
 
 
 def _require_kernel_iface_capability(netbird_bin: str) -> None:
@@ -62,6 +71,71 @@ def _require_kernel_iface_capability(netbird_bin: str) -> None:
     raise typer.Exit(1)
 
 
+def _instance_running(name: str, platform: PlatformConfig) -> bool:
+    """Whether the instance's daemon is up — service-managed or supervised."""
+    if is_service_active(name):
+        return True
+    pid = read_pid(platform.config_root, name)
+    return pid is not None and is_process_alive(pid)
+
+
+def _wait_daemon_ready(netbird_bin: str, daemon_addr: str, attempts: int = 20) -> bool:
+    """Poll until the daemon answers on its socket — systemd start is async."""
+    for _ in range(attempts):
+        time.sleep(0.25)
+        if run_status(netbird_bin, daemon_addr).returncode == 0:
+            return True
+    return False
+
+
+def _start_instance_daemon(
+    name: str,
+    netbird_bin: str,
+    config_path,
+    daemon_addr: str,
+    log_file,
+    runtime_env: dict[str, str],
+    platform: PlatformConfig,
+) -> tuple[int | None, bool]:
+    """Bring the daemon up, preferring the service manager (systemd).
+
+    Returns (pid, managed). When managed, systemd owns and supervises the
+    process (no PID file). Otherwise — no service manager available (containers,
+    macOS, Windows) — we supervise a daemon directly, as before.
+    """
+    register_service(
+        name=name,
+        netbird_bin=netbird_bin,
+        config_path=config_path,
+        daemon_addr=daemon_addr,
+        log_file=log_file,
+        env=runtime_env,
+    )
+    started = start_service(name)
+    if started is None:
+        pid = start_daemon(
+            netbird_bin=netbird_bin,
+            config_path=config_path,
+            daemon_addr=daemon_addr,
+            config_root=platform.config_root,
+            name=name,
+            log_file=log_file,
+            env=runtime_env,
+        )
+        return pid, False
+
+    if not started or not _wait_daemon_ready(netbird_bin, daemon_addr):
+        typer.echo(
+            f"Service for '{name}' failed to start. Check the daemon log "
+            f"({log_file}) or the unit status.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    # systemd supervises the process now; drop any stale supervised-PID file.
+    remove_pid(platform.config_root, name)
+    return service_main_pid(name), True
+
+
 def up(
     name: str,
     management_url: str,
@@ -79,10 +153,9 @@ def up(
     resolved_addr = daemon_addr or derive_daemon_addr(name, platform)
     resolved_iface = interface_name or derive_interface_name(name, platform)
 
-    pid = read_pid(platform.config_root, name)
-    if pid and is_process_alive(pid):
-        metadata = read_metadata(platform.config_root, name)
-        if metadata:
+    metadata = read_metadata(platform.config_root, name)
+    if _instance_running(name, platform):
+        if metadata is not None:
             if not is_service_registered(name):
                 register_service(
                     name=name,
@@ -94,26 +167,29 @@ def up(
                 )
                 metadata.service_registered = True
                 write_metadata(platform.config_root, metadata)
-            typer.echo(f"Instance '{name}' is already running (PID {pid}).")
+            typer.echo(f"Instance '{name}' is already running.")
             return
-        # PID exists but no metadata — leftover from a failed start, kill it
-        typer.echo(f"Cleaning up orphaned daemon (PID {pid})...")
+        # Running without metadata — a leftover from a failed start. Tear it
+        # down (service and/or supervised daemon) and start cleanly.
+        typer.echo(f"Cleaning up orphaned instance '{name}'...")
+        stop_service(name)
         stop_daemon(platform.config_root, name)
 
+    pid = read_pid(platform.config_root, name)
     if pid:
         remove_pid(platform.config_root, name)
 
     seed_netbird_config(config_path, resolved_iface)
 
     typer.echo(f"Starting daemon for instance '{name}'...")
-    daemon_pid = start_daemon(
+    daemon_pid, managed = _start_instance_daemon(
+        name=name,
         netbird_bin=netbird_bin,
         config_path=config_path,
         daemon_addr=resolved_addr,
-        config_root=platform.config_root,
-        name=name,
         log_file=log_file,
-        env=runtime_env,
+        runtime_env=runtime_env,
+        platform=platform,
     )
 
     # NetBird namespaces profiles in a per-user subdir (e.g. <state>/<user>/
@@ -136,28 +212,18 @@ def up(
         typer.echo(f"Failed to connect: {result.stderr}", err=True)
         raise typer.Exit(1)
 
-    register_service(
-        name=name,
-        netbird_bin=netbird_bin,
-        config_path=config_path,
-        daemon_addr=resolved_addr,
-        log_file=log_file,
-        env=runtime_env,
-    )
-
     metadata = InstanceMetadata(
         name=name,
         management_url=management_url,
         daemon_addr=resolved_addr,
         interface_name=resolved_iface,
-        pid=daemon_pid,
+        pid=daemon_pid or 0,
         created_at=datetime.now(timezone.utc).isoformat(),
         service_registered=True,
     )
     write_metadata(platform.config_root, metadata)
-    typer.echo(
-        f"Instance '{name}' is up (PID {daemon_pid}, interface {resolved_iface})."
-    )
+    where = "systemd" if managed else f"PID {daemon_pid}"
+    typer.echo(f"Instance '{name}' is up ({where}, interface {resolved_iface}).")
 
 
 def down(name: str) -> None:
@@ -169,30 +235,31 @@ def down(name: str) -> None:
         raise typer.Exit(1)
 
     netbird_bin = find_netbird_bin()
+    active = is_service_active(name)
     pid = read_pid(platform.config_root, name)
+    supervised = pid is not None and is_process_alive(pid)
 
-    if pid is None:
-        typer.echo(f"No daemon PID found for '{name}', disconnecting client...")
+    if not active and not supervised:
+        if pid is not None:
+            remove_pid(platform.config_root, name)
+        run_down(netbird_bin, metadata.daemon_addr)  # best-effort disconnect
         unregister_service(name)
-        run_down(netbird_bin, metadata.daemon_addr)
-        typer.echo(f"Instance '{name}' is down.")
+        typer.echo(f"Instance '{name}' is not running (cleaned up).")
         return
 
-    if not is_process_alive(pid):
-        remove_pid(platform.config_root, name)
-        unregister_service(name)
-        typer.echo(f"Instance '{name}' is not running (stale PID cleaned up).")
-        return
-
-    unregister_service(name)
     typer.echo(f"Disconnecting instance '{name}'...")
     result = run_down(netbird_bin, metadata.daemon_addr)
     if result.returncode != 0:
         typer.echo(f"Warning: disconnect failed: {result.stderr}", err=True)
 
-    typer.echo(f"Stopping daemon (PID {pid})...")
-    stop_daemon(platform.config_root, name)
+    if active:
+        typer.echo("Stopping service...")
+        stop_service(name)
+    if supervised:
+        typer.echo(f"Stopping daemon (PID {pid})...")
+        stop_daemon(platform.config_root, name)
 
+    unregister_service(name)
     typer.echo(f"Instance '{name}' is down.")
 
 
@@ -216,14 +283,20 @@ def _show_instance_status(name: str, platform: PlatformConfig) -> None:
         typer.echo(f"{name}: not found")
         return
 
-    pid = read_pid(platform.config_root, name)
-    alive = pid is not None and is_process_alive(pid)
+    active = is_service_active(name)
+    pid = None if active else read_pid(platform.config_root, name)
+    alive = active or (pid is not None and is_process_alive(pid))
     reachable = not alive and is_daemon_reachable(metadata.daemon_addr)
 
     if alive or reachable:
         netbird_bin = find_netbird_bin()
         result = run_status(netbird_bin, metadata.daemon_addr)
-        label = f"PID {pid}" if alive else "service"
+        if active:
+            label = "systemd"
+        elif alive:
+            label = f"PID {pid}"
+        else:
+            label = "service"
         typer.echo(f"--- {name} ({label}) ---")
         typer.echo(result.stdout or result.stderr)
     else:
@@ -319,8 +392,10 @@ def list_all() -> None:
         return
 
     for name in instances:
-        pid = read_pid(platform.config_root, name)
-        alive = pid is not None and is_process_alive(pid)
+        alive = is_service_active(name)
+        if not alive:
+            pid = read_pid(platform.config_root, name)
+            alive = pid is not None and is_process_alive(pid)
         if not alive:
             metadata = read_metadata(platform.config_root, name)
             if metadata and is_daemon_reachable(metadata.daemon_addr):
