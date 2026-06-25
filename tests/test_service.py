@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
+
+# These exercise Linux/systemd code that patches os.geteuid, which does not
+# exist on Windows (the patch target lookup raises AttributeError). macOS has
+# geteuid, so only Windows is skipped.
+linux_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="patches os.geteuid, absent on Windows"
+)
 
 
 class TestWindowsRegister:
@@ -195,6 +205,7 @@ class TestWindowsIsRegistered:
             assert is_service_registered("office") is False
 
 
+@linux_only
 class TestLinuxRegister:
     def test_writes_unit_file_and_enables(self, tmp_path: Path) -> None:
         from wingman.service import register_service
@@ -257,6 +268,7 @@ class TestLinuxRegister:
         assert "Warning" in captured.err
 
 
+@linux_only
 class TestLinuxUnregister:
     def test_disables_and_removes_unit_file(self, tmp_path: Path) -> None:
         from wingman.service import unregister_service
@@ -315,6 +327,7 @@ class TestLinuxIsRegistered:
             assert is_service_registered("office") is False
 
 
+@linux_only
 class TestSystemdScope:
     def test_root_uses_system_scope(self) -> None:
         from wingman.service import _systemd_scope
