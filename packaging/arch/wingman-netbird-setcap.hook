@@ -1,6 +1,8 @@
-# Reapply CAP_NET_ADMIN to the netbird binary so rootless wingman instances can
-# create their WireGuard interfaces. pacman strips file capabilities on every
-# (re)install of the netbird package, so this runs after each netbird transaction.
+# Reapply the file capabilities rootless wingman instances need: CAP_NET_ADMIN
+# (create the WireGuard interface) and CAP_NET_BIND_SERVICE (bind the per-instance
+# DNS resolver to port 53, where systemd-resolved sends queries). pacman strips
+# file capabilities on every (re)install of the netbird package, so this runs
+# after each netbird transaction.
 #
 # Install to: /usr/share/libalpm/hooks/wingman-netbird-setcap.hook
 [Trigger]
@@ -10,6 +12,6 @@ Operation = Upgrade
 Target = usr/bin/netbird
 
 [Action]
-Description = Granting CAP_NET_ADMIN to netbird for rootless wingman instances...
+Description = Granting net capabilities to netbird for rootless wingman instances...
 When = PostTransaction
-Exec = /usr/bin/setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird
+Exec = /usr/bin/setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip /usr/bin/netbird

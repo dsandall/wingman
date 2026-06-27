@@ -11,27 +11,33 @@ A wingman instance runs as **your user**, not root:
 - Persistence is a `systemctl --user` unit + linger.
 - `status` / `peers` / `list` / `up` / `down` all run without `sudo`.
 
-There are two privileged needs, both granted narrowly instead of running the
-daemon as root:
+The privileged needs are granted narrowly instead of running the daemon as root.
+Two are file capabilities on the `netbird` binary, granted together in one
+`setcap`:
 
-1. **Creating the WireGuard interface** requires `CAP_NET_ADMIN`. Grant that
-   single capability to the `netbird` binary:
+```
+sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip /usr/bin/netbird
+```
 
-   ```
-   sudo setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird
-   ```
+1. **Creating the WireGuard interface** requires `CAP_NET_ADMIN`.
 
-2. **Installing per-instance DNS** through systemd-resolved. The daemon asks
-   resolved to set its interface's DNS server/domains
-   (`org.freedesktop.resolve1.set-*`); polkit denies that to non-root callers by
-   default, so a rule must authorize it. Without it the tunnel still comes up but
-   NetBird name resolution silently doesn't work (`resolvectl status <iface>`
-   shows `Current Scopes: none`). Ship a polkit rule granting the `wheel` group
-   those actions:
+2. **Binding the per-instance DNS resolver to port 53** requires
+   `CAP_NET_BIND_SERVICE`. systemd-resolved sends queries to the interface IP on
+   port 53; a rootless daemon that can't bind 53 falls back to port 5053, which
+   resolved never queries, so lookups get connection-refused even though the
+   resolver is running.
 
-   ```
-   /usr/share/polkit-1/rules.d/50-wingman-netbird-dns.rules
-   ```
+The third need is **letting the daemon install per-instance DNS** into
+systemd-resolved. The daemon asks resolved to set its interface's DNS
+server/domains (`org.freedesktop.resolve1.set-*`); polkit denies that to non-root
+callers by default, so a rule must authorize it. Without it the tunnel still
+comes up but resolved ignores the resolver entirely (`resolvectl status <iface>`
+shows `Current Scopes: none`). Ship a polkit rule granting the `wheel` group
+those actions:
+
+```
+/usr/share/polkit-1/rules.d/50-wingman-netbird-dns.rules
+```
 
 ## What the package should do
 
@@ -45,7 +51,7 @@ daemon as root:
 
    ```sh
    post_install() {
-       setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird
+       setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip /usr/bin/netbird
        echo ">>> Enable boot persistence per user with: loginctl enable-linger <user>"
    }
    post_upgrade() { post_install; }
@@ -58,15 +64,16 @@ daemon as root:
 
 4. **Depend on** `netbird`, `libcap` (for `setcap`/`getcap`), and `polkit`.
 
-`wingman` itself preflights both: a rootless `wingman up` aborts early with the
+`wingman` itself preflights these: a rootless `wingman up` aborts early with the
 exact `setcap` command if `CAP_NET_ADMIN` is missing (via `getcap`), and warns
-(without blocking) if systemd-resolved will reject its DNS (via `pkcheck`), so an
+(without blocking) if DNS won't work — either polkit will reject resolved updates
+(via `pkcheck`) or `CAP_NET_BIND_SERVICE` is missing (via `getcap`) — so an
 unpackaged install is still self-explanatory.
 
 ## First-time user setup (until the AUR package lands)
 
 ```fish
-sudo setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird   # one time
+sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip /usr/bin/netbird  # one time
 sudo install -Dm644 packaging/arch/wingman-netbird-dns.rules \
     /etc/polkit-1/rules.d/50-wingman-netbird-dns.rules       # one time (DNS)
 wingman up <name> --setup-key <KEY>                          # as your user

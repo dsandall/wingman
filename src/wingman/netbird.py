@@ -24,12 +24,11 @@ def find_netbird_bin() -> str:
     return bin_path
 
 
-def has_net_admin_capability(netbird_bin: str) -> bool | None:
-    """Whether the netbird binary carries CAP_NET_ADMIN as a file capability.
+def _has_file_capability(netbird_bin: str, cap: str) -> bool | None:
+    """Whether the netbird binary carries `cap` as a file capability.
 
-    This is what lets a *non-root* daemon create the WireGuard interface. Returns
-    None when it can't be determined (e.g. `getcap` is unavailable), so callers
-    can choose not to block on an unknown rather than guessing wrong.
+    Returns None when it can't be determined (e.g. `getcap` is unavailable), so
+    callers can choose not to act on an unknown rather than guessing wrong.
     """
     getcap = shutil.which("getcap")
     if getcap is None:
@@ -40,7 +39,21 @@ def has_net_admin_capability(netbird_bin: str) -> bool | None:
     )
     if result.returncode != 0:
         return None
-    return "cap_net_admin" in result.stdout.lower()
+    return cap in result.stdout.lower()
+
+
+def has_net_admin_capability(netbird_bin: str) -> bool | None:
+    """Whether netbird carries CAP_NET_ADMIN — lets a non-root daemon create the
+    WireGuard interface."""
+    return _has_file_capability(netbird_bin, "cap_net_admin")
+
+
+def has_net_bind_capability(netbird_bin: str) -> bool | None:
+    """Whether netbird carries CAP_NET_BIND_SERVICE — lets a non-root daemon bind
+    its DNS resolver to privileged port 53 on the interface, which is where
+    systemd-resolved sends queries. Without it the resolver falls back to a high
+    port (5053) that resolved never queries, so name resolution fails."""
+    return _has_file_capability(netbird_bin, "cap_net_bind_service")
 
 
 def run_service(

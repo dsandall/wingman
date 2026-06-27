@@ -29,6 +29,7 @@ from wingman.daemon import (
 from wingman.netbird import (
     find_netbird_bin,
     has_net_admin_capability,
+    has_net_bind_capability,
     run_down,
     run_status,
     run_up,
@@ -68,31 +69,49 @@ def _require_kernel_iface_capability(netbird_bin: str) -> None:
     typer.echo(
         "netbird lacks CAP_NET_ADMIN, so a rootless daemon can't create the "
         "WireGuard interface. Grant it once (persists until netbird is "
-        f"upgraded):\n  sudo setcap 'cap_net_admin,cap_net_raw+eip' {target}\n"
+        "upgraded):\n  sudo setcap "
+        f"'cap_net_admin,cap_net_raw,cap_net_bind_service+eip' {target}\n"
         "then re-run. (The packaged install configures this for you.)",
         err=True,
     )
     raise typer.Exit(1)
 
 
-def _warn_resolved_dns_unauthorized() -> None:
-    """Warn (don't block) when a rootless daemon can't install instance DNS.
+def _warn_dns_unavailable(netbird_bin: str) -> None:
+    """Warn (don't block) when a rootless daemon won't get working DNS.
 
-    Unlike the WireGuard interface capability — without which `up` can't work at
-    all and so aborts — missing systemd-resolved authorization is non-fatal: the
-    tunnel still comes up, you just don't get NetBird DNS / name resolution. So
-    surface the one-time polkit fix and carry on.
+    Rootless NetBird DNS needs two independent grants, both non-fatal if absent
+    (the tunnel still comes up — only name resolution breaks — so warn, don't
+    abort like the interface capability does):
+
+    * polkit must let the daemon register its resolver with systemd-resolved
+      (org.freedesktop.resolve1.set-*); otherwise resolved ignores it entirely
+      and `resolvectl status` shows "Current Scopes: none".
+    * netbird needs CAP_NET_BIND_SERVICE to bind its resolver to port 53 on the
+      interface — where resolved sends queries. Without it the resolver falls
+      back to port 5053 and resolved's lookups get connection-refused.
     """
-    if is_root() or resolved_dns_authorized() is not False:
+    if is_root():
+        return
+    problems: list[str] = []
+    if resolved_dns_authorized() is False:
+        problems.append(
+            "  - polkit denies systemd-resolved updates; install a rule allowing "
+            "org.freedesktop.resolve1.set-* for your group (e.g. wheel):\n"
+            "      /etc/polkit-1/rules.d/50-wingman-netbird-dns.rules"
+        )
+    if has_net_bind_capability(netbird_bin) is False:
+        target = shutil.which(netbird_bin) or netbird_bin
+        problems.append(
+            "  - netbird can't bind DNS port 53; grant it once:\n      sudo setcap"
+            f" 'cap_net_admin,cap_net_raw,cap_net_bind_service+eip' {target}"
+        )
+    if not problems:
         return
     typer.echo(
-        "systemd-resolved is refusing DNS from a rootless daemon (polkit denies "
-        "it), so this instance's NetBird DNS / name resolution won't work. Grant "
-        "it once with a polkit rule allowing org.freedesktop.resolve1.set-* for "
-        "your group (e.g. wheel):\n"
-        "  /etc/polkit-1/rules.d/50-wingman-netbird-dns.rules\n"
-        "(The packaged install ships this for you.) The tunnel still comes up; "
-        "only DNS is affected.",
+        "NetBird DNS / name resolution won't work for this instance (the tunnel "
+        "still comes up). Fix:\n" + "\n".join(problems) + "\n"
+        "(The packaged install configures both for you.)",
         err=True,
     )
 
@@ -171,7 +190,7 @@ def up(
 ) -> None:
     netbird_bin = find_netbird_bin()
     _require_kernel_iface_capability(netbird_bin)
-    _warn_resolved_dns_unauthorized()
+    _warn_dns_unavailable(netbird_bin)
     platform = get_platform_config()
     config_dir = ensure_instance_dir(platform.config_root, name)
     config_path, runtime_env = derive_netbird_runtime(config_dir)
