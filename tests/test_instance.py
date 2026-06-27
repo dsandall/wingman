@@ -31,6 +31,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.start_daemon", return_value=42),
             patch("wingman.instance.read_pid", return_value=None),
             patch("wingman.instance.is_service_active", return_value=False),
@@ -74,6 +75,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.read_pid", return_value=None),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.register_service"),
@@ -113,6 +115,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.read_pid", return_value=None),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.register_service"),
@@ -154,6 +157,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
@@ -190,6 +194,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
@@ -223,6 +228,7 @@ class TestUp:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.start_daemon", return_value=42),
             patch("wingman.instance.read_pid", return_value=None),
             patch("wingman.instance.is_service_active", return_value=False),
@@ -280,6 +286,7 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=True),
@@ -325,6 +332,7 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=True),
@@ -358,6 +366,7 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.is_service_active", return_value=True),
             patch("wingman.instance.read_pid", return_value=None),
             patch("wingman.instance.run_down", return_value=MagicMock(returncode=0)),
@@ -392,6 +401,7 @@ class TestDown:
             patch("wingman.instance.get_platform_config", return_value=platform),
             patch("wingman.instance.find_netbird_bin", return_value="netbird"),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
             patch("wingman.instance.is_service_active", return_value=False),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_process_alive", return_value=False),
@@ -602,5 +612,58 @@ class TestRequireKernelIfaceCapability:
         with (
             patch("wingman.instance.is_root", return_value=False),
             patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
         ):
             _require_kernel_iface_capability("netbird")  # must not raise
+
+
+class TestWarnResolvedDnsUnauthorized:
+    def test_warns_when_unauthorized(self, capsys) -> None:
+        from wingman.instance import _warn_resolved_dns_unauthorized
+
+        with (
+            patch("wingman.instance.is_root", return_value=False),
+            patch("wingman.instance.resolved_dns_authorized", return_value=False),
+        ):
+            _warn_resolved_dns_unauthorized()  # must not raise — warning only
+
+        err = capsys.readouterr().err
+        assert "polkit" in err
+        assert "resolve1.set-" in err
+
+    def test_silent_when_authorized(self, capsys) -> None:
+        from wingman.instance import _warn_resolved_dns_unauthorized
+
+        with (
+            patch("wingman.instance.is_root", return_value=False),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
+        ):
+            _warn_resolved_dns_unauthorized()
+
+        assert capsys.readouterr().err == ""
+
+    def test_silent_when_undeterminable(self, capsys) -> None:
+        from wingman.instance import _warn_resolved_dns_unauthorized
+
+        with (
+            patch("wingman.instance.is_root", return_value=False),
+            patch("wingman.instance.resolved_dns_authorized", return_value=None),
+        ):
+            _warn_resolved_dns_unauthorized()
+
+        assert capsys.readouterr().err == ""
+
+    def test_silent_for_root(self, capsys) -> None:
+        from wingman.instance import _warn_resolved_dns_unauthorized
+
+        # Root bypasses polkit — never probe, never warn.
+        with (
+            patch("wingman.instance.is_root", return_value=True),
+            patch(
+                "wingman.instance.resolved_dns_authorized",
+                side_effect=AssertionError("should not probe as root"),
+            ),
+        ):
+            _warn_resolved_dns_unauthorized()
+
+        assert capsys.readouterr().err == ""

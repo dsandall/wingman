@@ -1,0 +1,19 @@
+// Let rootless NetBird daemons (managed by wingman) configure per-interface DNS
+// through systemd-resolved. A non-root daemon installs each instance's DNS by
+// calling resolved's org.freedesktop.resolve1.set-dns-servers / set-domains on
+// its WireGuard interface; polkit denies that to non-root callers by default, so
+// without this rule instance DNS silently fails to install (the tunnel comes up,
+// but NetBird name resolution doesn't).
+//
+// Scope: local administrators (the `wheel` group), who can already become root.
+// Narrow it to a dedicated group if you prefer least privilege.
+//
+// Install to: /usr/share/polkit-1/rules.d/50-wingman-netbird-dns.rules
+// (polkitd picks it up automatically; admins can override via /etc/polkit-1.)
+polkit.addRule(function(action, subject) {
+    if ((action.id.indexOf("org.freedesktop.resolve1.set-") === 0 ||
+         action.id == "org.freedesktop.resolve1.revert") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});

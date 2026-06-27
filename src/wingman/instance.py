@@ -40,6 +40,7 @@ from wingman.platform import (
     derive_netbird_runtime,
     get_platform_config,
     is_root,
+    resolved_dns_authorized,
 )
 from wingman.service import (
     is_service_active,
@@ -72,6 +73,28 @@ def _require_kernel_iface_capability(netbird_bin: str) -> None:
         err=True,
     )
     raise typer.Exit(1)
+
+
+def _warn_resolved_dns_unauthorized() -> None:
+    """Warn (don't block) when a rootless daemon can't install instance DNS.
+
+    Unlike the WireGuard interface capability — without which `up` can't work at
+    all and so aborts — missing systemd-resolved authorization is non-fatal: the
+    tunnel still comes up, you just don't get NetBird DNS / name resolution. So
+    surface the one-time polkit fix and carry on.
+    """
+    if is_root() or resolved_dns_authorized() is not False:
+        return
+    typer.echo(
+        "systemd-resolved is refusing DNS from a rootless daemon (polkit denies "
+        "it), so this instance's NetBird DNS / name resolution won't work. Grant "
+        "it once with a polkit rule allowing org.freedesktop.resolve1.set-* for "
+        "your group (e.g. wheel):\n"
+        "  /etc/polkit-1/rules.d/50-wingman-netbird-dns.rules\n"
+        "(The packaged install ships this for you.) The tunnel still comes up; "
+        "only DNS is affected.",
+        err=True,
+    )
 
 
 def _instance_running(name: str, platform: PlatformConfig) -> bool:
@@ -148,6 +171,7 @@ def up(
 ) -> None:
     netbird_bin = find_netbird_bin()
     _require_kernel_iface_capability(netbird_bin)
+    _warn_resolved_dns_unauthorized()
     platform = get_platform_config()
     config_dir = ensure_instance_dir(platform.config_root, name)
     config_path, runtime_env = derive_netbird_runtime(config_dir)

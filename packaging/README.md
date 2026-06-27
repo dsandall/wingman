@@ -11,13 +11,27 @@ A wingman instance runs as **your user**, not root:
 - Persistence is a `systemctl --user` unit + linger.
 - `status` / `peers` / `list` / `up` / `down` all run without `sudo`.
 
-The only privileged need is creating the WireGuard interface, which requires
-`CAP_NET_ADMIN`. Instead of running the whole daemon as root, grant that single
-capability to the `netbird` binary:
+There are two privileged needs, both granted narrowly instead of running the
+daemon as root:
 
-```
-sudo setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird
-```
+1. **Creating the WireGuard interface** requires `CAP_NET_ADMIN`. Grant that
+   single capability to the `netbird` binary:
+
+   ```
+   sudo setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird
+   ```
+
+2. **Installing per-instance DNS** through systemd-resolved. The daemon asks
+   resolved to set its interface's DNS server/domains
+   (`org.freedesktop.resolve1.set-*`); polkit denies that to non-root callers by
+   default, so a rule must authorize it. Without it the tunnel still comes up but
+   NetBird name resolution silently doesn't work (`resolvectl status <iface>`
+   shows `Current Scopes: none`). Ship a polkit rule granting the `wheel` group
+   those actions:
+
+   ```
+   /usr/share/polkit-1/rules.d/50-wingman-netbird-dns.rules
+   ```
 
 ## What the package should do
 
@@ -37,16 +51,24 @@ sudo setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird
    post_upgrade() { post_install; }
    ```
 
-3. **Depend on** `netbird` and `libcap` (for `setcap`/`getcap`).
+3. **Ship the polkit rule** `wingman-netbird-dns.rules` to
+   `/usr/share/polkit-1/rules.d/`. Unlike the file capability, polkit rules
+   survive package upgrades, so this needs no reapply hook — just install the
+   file (polkitd picks it up automatically).
 
-`wingman` itself preflights the capability: a rootless `wingman up` aborts early
-with the exact `setcap` command if it's missing (via `getcap`), so an unpackaged
-install is still self-explanatory.
+4. **Depend on** `netbird`, `libcap` (for `setcap`/`getcap`), and `polkit`.
+
+`wingman` itself preflights both: a rootless `wingman up` aborts early with the
+exact `setcap` command if `CAP_NET_ADMIN` is missing (via `getcap`), and warns
+(without blocking) if systemd-resolved will reject its DNS (via `pkcheck`), so an
+unpackaged install is still self-explanatory.
 
 ## First-time user setup (until the AUR package lands)
 
 ```fish
 sudo setcap cap_net_admin,cap_net_raw+eip /usr/bin/netbird   # one time
+sudo install -Dm644 packaging/arch/wingman-netbird-dns.rules \
+    /etc/polkit-1/rules.d/50-wingman-netbird-dns.rules       # one time (DNS)
 wingman up <name> --setup-key <KEY>                          # as your user
 sudo loginctl enable-linger $USER                            # persist on boot
 ```

@@ -3,6 +3,8 @@ from __future__ import annotations
 import getpass
 import hashlib
 import os
+import shutil
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,6 +59,39 @@ def derive_interface_name(name: str, config: PlatformConfig) -> str:
     h = int(hashlib.sha256(name.encode()).hexdigest(), 16)
     index = 1 + (h % 99)
     return f"{config.interface_prefix}{index}"
+
+
+def resolved_dns_authorized() -> bool | None:
+    """Whether the daemon's user may configure systemd-resolved per-link DNS.
+
+    A rootless NetBird daemon installs each instance's DNS by asking
+    systemd-resolved to set the interface's DNS server/domains
+    (`org.freedesktop.resolve1.set-dns-servers` et al.). polkit denies that to a
+    non-root caller unless a rule grants it, and the daemon then silently fails
+    to install DNS (the tunnel still comes up, but name resolution doesn't). The
+    daemon runs as this process's user, so `pkcheck` against our own PID is a
+    faithful proxy. Returns None when undeterminable (not Linux, no resolved, or
+    `pkcheck`/resolved unavailable) so callers don't warn on a guess.
+    """
+    if sys.platform != "linux":
+        return None
+    pkcheck = shutil.which("pkcheck")
+    resolvectl = shutil.which("resolvectl")
+    if pkcheck is None or resolvectl is None:
+        return None
+    result = subprocess.run(
+        [
+            pkcheck,
+            "--action-id",
+            "org.freedesktop.resolve1.set-dns-servers",
+            "--process",
+            str(os.getpid()),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def derive_netbird_runtime(config_dir: Path) -> tuple[Path, dict[str, str]]:
