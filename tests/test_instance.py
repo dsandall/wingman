@@ -502,15 +502,21 @@ class TestParsePeerLines:
   Status: Idle
 """
         assert _parse_peer_lines(detail) == [
-            ("lynx", "Connected"),
-            ("cubert", "Idle"),
+            ("lynx", "Connected", "100.64.135.69"),
+            ("cubert", "Idle", "100.64.18.8"),
         ]
 
     def test_domain_agnostic_short_name(self) -> None:
         from wingman.instance import _parse_peer_lines
 
         detail = " host-a.netbird.example.com:\n  Status: Connected\n"
-        assert _parse_peer_lines(detail) == [("host-a", "Connected")]
+        assert _parse_peer_lines(detail) == [("host-a", "Connected", None)]
+
+    def test_ip_absent_when_block_omits_it(self) -> None:
+        from wingman.instance import _parse_peer_lines
+
+        detail = " host-a.netbird.cloud:\n  Status: Connected\n"
+        assert _parse_peer_lines(detail) == [("host-a", "Connected", None)]
 
     def test_no_peers(self) -> None:
         from wingman.instance import _parse_peer_lines
@@ -518,35 +524,54 @@ class TestParsePeerLines:
         assert _parse_peer_lines("Peers count: 0/0 Connected\n") == []
 
 
+class TestParseSelfIdentity:
+    def test_parses_name_and_strips_cidr(self) -> None:
+        from wingman.instance import _parse_self_identity
+
+        status = (
+            "Profile: personal\n"
+            "FQDN: ice-cubed-155-250.netbird.cloud\n"
+            "NetBird IP: 100.81.155.250/16\n"
+            "Peers count: 2/3 Connected\n"
+        )
+        assert _parse_self_identity(status) == ("ice-cubed-155-250", "100.81.155.250")
+
+    def test_missing_fields_are_none(self) -> None:
+        from wingman.instance import _parse_self_identity
+
+        assert _parse_self_identity("Management: Connected\n") == (None, None)
+
+    def test_ignores_indented_peer_ip_lines(self) -> None:
+        from wingman.instance import _parse_self_identity
+
+        # Indented "NetBird IP:" belongs to a peer block, not self.
+        status = "FQDN: host.netbird.cloud\n  NetBird IP: 100.64.0.9\n"
+        assert _parse_self_identity(status) == ("host", None)
+
+
 class TestPeerOrdering:
     def test_connected_then_connecting_then_rest(self) -> None:
         from wingman.instance import _peer_sort_key
 
         peers = [
-            ("zeta", "Idle"),
-            ("bravo", "Connected"),
-            ("yankee", "Connecting"),
-            ("alpha", "Connected"),
-            ("mike", "Disconnected"),
+            ("zeta", "Idle", None),
+            ("bravo", "Connected", None),
+            ("yankee", "Connecting", None),
+            ("alpha", "Connected", None),
+            ("mike", "Disconnected", None),
         ]
-        ordered = [name for name, _ in sorted(peers, key=_peer_sort_key)]
+        ordered = [name for name, _status, _ip in sorted(peers, key=_peer_sort_key)]
         # Connected (alphabetical), then Connecting, then the rest (alphabetical).
         assert ordered == ["alpha", "bravo", "yankee", "mike", "zeta"]
 
     def test_status_colors(self) -> None:
-        import typer
+        from wingman.instance import _STATUS_STYLE
 
-        from wingman.instance import _styled_status
-
-        assert _styled_status("Connected") == typer.style(
-            "Connected", fg=typer.colors.GREEN
-        )
-        assert _styled_status("Connecting") == typer.style(
-            "Connecting", fg=typer.colors.YELLOW
-        )
-        # Offline statuses are left uncolored.
-        assert _styled_status("Idle") == "Idle"
-        assert _styled_status("Disconnected") == "Disconnected"
+        assert _STATUS_STYLE["connected"] == "green"
+        assert _STATUS_STYLE["connecting"] == "yellow"
+        # Offline statuses (Idle/Disconnected) are absent → rendered uncolored.
+        assert "idle" not in _STATUS_STYLE
+        assert "disconnected" not in _STATUS_STYLE
 
 
 class TestRequireKernelIfaceCapability:

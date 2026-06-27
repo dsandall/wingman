@@ -97,9 +97,13 @@ def peers(
     name: Annotated[
         str | None, typer.Argument(help="Instance name (omit for all)")
     ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option("--verbose", "-v", help="Also show each peer's NetBird IP"),
+    ] = False,
 ) -> None:
     """List peers and their connection status for one or all instances."""
-    inst.peers(name)
+    inst.peers(name, verbose)
 
 
 @app.command(name="list")

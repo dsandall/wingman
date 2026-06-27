@@ -6,6 +6,9 @@ import time
 from datetime import datetime, timezone
 
 import typer
+from rich import box
+from rich.console import Console
+from rich.table import Table
 
 from wingman.config import (
     InstanceMetadata,
@@ -307,47 +310,82 @@ def _show_instance_status(name: str, platform: PlatformConfig) -> None:
 #   lynx.netbird.cloud:
 #     NetBird IP: 100.64.135.69
 #     Status: Connected
-# Header = indented FQDN ending in ':'; status = indented "Status: <value>".
+# Header = indented FQDN ending in ':'; IP and status are indented "<key>: <value>".
 _PEER_HEADER_RE = re.compile(r"^\s+(\S+\.\S+):$")
+_PEER_IP_RE = re.compile(r"^\s+NetBird IP:\s*(\S+)")
 _PEER_STATUS_RE = re.compile(r"^\s+Status:\s*(\S+)")
 
 
-def _parse_peer_lines(detail_output: str) -> list[tuple[str, str]]:
-    """Extract (short_name, status) pairs from `netbird status --detail` output."""
-    peers: list[tuple[str, str]] = []
+def _parse_peer_lines(detail_output: str) -> list[tuple[str, str, str | None]]:
+    """Extract (short_name, status, ip) triples from `netbird status --detail`.
+
+    The IP is None when a peer block omits the "NetBird IP" line.
+    """
+    peers: list[tuple[str, str, str | None]] = []
     current: str | None = None
+    current_ip: str | None = None
     for line in detail_output.splitlines():
         header = _PEER_HEADER_RE.match(line)
         if header:
             current = header.group(1).split(".", 1)[0]
+            current_ip = None
+            continue
+        if current is None:
+            continue
+        ip = _PEER_IP_RE.match(line)
+        if ip:
+            current_ip = ip.group(1)
             continue
         status = _PEER_STATUS_RE.match(line)
-        if status and current is not None:
-            peers.append((current, status.group(1)))
+        if status:
+            peers.append((current, status.group(1), current_ip))
             current = None
+            current_ip = None
     return peers
 
 
 # Display ordering within a network: connected first, then connecting, then the
 # rest (NetBird reports offline/lazy peers as "Idle", others as "Disconnected").
 _STATUS_RANK = {"connected": 0, "connecting": 1}
-_STATUS_COLOR = {
-    "connected": typer.colors.GREEN,
-    "connecting": typer.colors.YELLOW,
+# Rich styles applied to a peer's status cell; unlisted statuses render plain.
+_STATUS_STYLE = {
+    "connected": "green",
+    "connecting": "yellow",
 }
 
+_console = Console()
 
-def _peer_sort_key(peer: tuple[str, str]) -> tuple[int, str]:
-    name, status = peer
+
+def _peer_sort_key(peer: tuple[str, str, str | None]) -> tuple[int, str]:
+    name, status, _ip = peer
     return (_STATUS_RANK.get(status.lower(), 2), name.lower())
 
 
-def _styled_status(status: str) -> str:
-    color = _STATUS_COLOR.get(status.lower())
-    return typer.style(status, fg=color) if color else status
+# The local node's own identity comes from the non-detail `netbird status`
+# summary, which carries unindented "FQDN:" and "NetBird IP:" lines (the IP is a
+# CIDR like 100.81.155.250/16, so we drop the prefix length).
+_SELF_FQDN_RE = re.compile(r"^FQDN:\s*(\S+)")
+_SELF_IP_RE = re.compile(r"^NetBird IP:\s*(\S+)")
 
 
-def _show_instance_peers(name: str, platform: PlatformConfig) -> None:
+def _parse_self_identity(status_output: str) -> tuple[str | None, str | None]:
+    """Extract this node's own (short_name, ip) from `netbird status` output."""
+    name: str | None = None
+    ip: str | None = None
+    for line in status_output.splitlines():
+        fqdn = _SELF_FQDN_RE.match(line)
+        if fqdn:
+            name = fqdn.group(1).split(".", 1)[0]
+            continue
+        addr = _SELF_IP_RE.match(line)
+        if addr:
+            ip = addr.group(1).split("/", 1)[0]
+    return name, ip
+
+
+def _show_instance_peers(
+    name: str, platform: PlatformConfig, verbose: bool = False
+) -> None:
     metadata = read_metadata(platform.config_root, name)
     if metadata is None:
         typer.echo(f"{name}: not found")
@@ -359,20 +397,46 @@ def _show_instance_peers(name: str, platform: PlatformConfig) -> None:
         typer.echo(f"--- {name} (unreachable) ---")
         return
 
-    typer.echo(f"--- {name} ---")
-    peers = _parse_peer_lines(result.stdout)
-    if not peers:
+    table = Table(
+        title=f"[bold]{name}[/bold]",
+        title_justify="left",
+        box=box.SIMPLE_HEAD,
+        pad_edge=False,
+    )
+    table.add_column("NAME", style="bold")
+    table.add_column("STATUS")
+    if verbose:
+        table.add_column("IP", style="dim")
+
+    if verbose:
+        self_name, self_ip = _parse_self_identity(
+            run_status(netbird_bin, metadata.daemon_addr).stdout
+        )
+        if self_name:
+            table.add_row(self_name, "[cyan]self[/cyan]", self_ip or "-")
+
+    for peer_name, status, ip in sorted(
+        _parse_peer_lines(result.stdout), key=_peer_sort_key
+    ):
+        style = _STATUS_STYLE.get(status.lower())
+        status_cell = f"[{style}]{status}[/{style}]" if style else status
+        row = [peer_name, status_cell]
+        if verbose:
+            row.append(ip or "-")
+        table.add_row(*row)
+
+    if table.row_count == 0:
+        typer.echo(f"--- {name} ---")
         typer.echo("(no peers)")
         return
-    for peer_name, status in sorted(peers, key=_peer_sort_key):
-        typer.echo(f"{peer_name} — {_styled_status(status)}")
+    _console.print(table)
 
 
-def peers(name: str | None = None) -> None:
+def peers(name: str | None = None, verbose: bool = False) -> None:
     platform = get_platform_config()
 
     if name:
-        _show_instance_peers(name, platform)
+        _show_instance_peers(name, platform, verbose)
         return
 
     instances = list_instances(platform.config_root)
@@ -380,7 +444,7 @@ def peers(name: str | None = None) -> None:
         typer.echo("No instances found.")
         return
     for inst_name in instances:
-        _show_instance_peers(inst_name, platform)
+        _show_instance_peers(inst_name, platform, verbose)
 
 
 def list_all() -> None:
