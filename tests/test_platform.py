@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from wingman.platform import (
     PlatformConfig,
@@ -210,10 +213,20 @@ class TestResolvedDnsState:
         rc.write_text("nameserver 192.168.1.1\n")
         assert self._run(tmp_path, False, rc) == "inactive"
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink semantics")
     def test_active_when_stub_symlink(self, tmp_path) -> None:
         rc = tmp_path / "resolv.conf"
         rc.symlink_to("/run/systemd/resolve/stub-resolv.conf")
         # dangling on the test host is fine — only the target path matters
+        assert self._run(tmp_path, True, rc) == "active"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink semantics")
+    def test_active_when_symlink_chain_ends_in_resolved(self, tmp_path) -> None:
+        # /etc/resolv.conf -> ../run/resolv.conf -> /run/systemd/resolve/resolv.conf
+        hop = tmp_path / "hop"
+        hop.symlink_to("/run/systemd/resolve/resolv.conf")
+        rc = tmp_path / "resolv.conf"
+        rc.symlink_to(hop)
         assert self._run(tmp_path, True, rc) == "active"
 
     def test_active_when_stub_copied(self, tmp_path) -> None:

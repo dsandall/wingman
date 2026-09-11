@@ -127,13 +127,23 @@ def resolved_dns_state(resolv_conf: Path = Path("/etc/resolv.conf")) -> str | No
     return "active" if _resolv_conf_is_resolved(resolv_conf) else "unmanaged"
 
 
+_RESOLVED_RUN_DIR = "/run/systemd/resolve/"
+
+
 def _resolv_conf_is_resolved(resolv_conf: Path) -> bool:
     """True when resolv.conf is systemd-resolved's stub/full file (or a copy)."""
+    # Compare link targets as POSIX strings, not resolved Paths: Path.resolve()
+    # would anchor "/run/systemd/resolve" to a drive letter on Windows, and
+    # the target may legitimately dangle (e.g. inside an install chroot).
     try:
-        target = resolv_conf.resolve()
+        if resolv_conf.is_symlink():
+            link = os.readlink(resolv_conf).replace("\\", "/")
+            if link.startswith(_RESOLVED_RUN_DIR):
+                return True
+        target = resolv_conf.resolve().as_posix()
     except OSError:
         return False
-    if target.is_relative_to("/run/systemd/resolve"):
+    if target.startswith(_RESOLVED_RUN_DIR):
         return True
     try:
         content = resolv_conf.read_text()
