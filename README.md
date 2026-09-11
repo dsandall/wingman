@@ -70,6 +70,15 @@ sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip $(command -v netb
 
 `wingman up` preflights this and aborts with the exact command if it's missing, so you won't be left guessing.
 
+Peer name resolution (`<peer>.netbird.cloud`) has one host-level prerequisite the package can't set up: a rootless daemon installs DNS through **systemd-resolved**, so it must be running and own `/etc/resolv.conf`. On a NetworkManager-only host the tunnel comes up but names never resolve. Fix once:
+
+```bash
+sudo systemctl enable --now systemd-resolved
+sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+```
+
+`wingman up` warns (without blocking) when this is missing.
+
 ```bash
 # Start named instances on two different networks
 wingman up personal --management-url https://api.netbird.io:443 --setup-key KEY1

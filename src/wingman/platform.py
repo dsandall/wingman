@@ -94,6 +94,57 @@ def resolved_dns_authorized() -> bool | None:
     return result.returncode == 0
 
 
+def resolved_dns_state(resolv_conf: Path = Path("/etc/resolv.conf")) -> str | None:
+    """Whether systemd-resolved is the host resolver a rootless daemon can use.
+
+    A non-root NetBird daemon has exactly one way to install per-link DNS:
+    handing it to systemd-resolved. It cannot rewrite /etc/resolv.conf itself,
+    so on a host where NetworkManager (or a static file) owns resolv.conf the
+    daemon logs `failed to apply DNS host manager update ... permission denied`
+    and the tunnel comes up with no name resolution — while polkit and the
+    bind capability both look fine. NetBird only picks resolved when it is
+    running *and* /etc/resolv.conf is resolved's own file (the stub symlink or
+    a copy naming 127.0.0.53).
+
+    Returns "active" (resolved runs and owns resolv.conf), "unmanaged" (resolved
+    runs but resolv.conf is someone else's), "inactive" (resolved not running),
+    or None when undeterminable (not Linux, no systemctl) so callers don't warn
+    on a guess.
+    """
+    if sys.platform != "linux":
+        return None
+    systemctl = shutil.which("systemctl")
+    if systemctl is None:
+        return None
+    result = subprocess.run(
+        [systemctl, "is-active", "--quiet", "systemd-resolved.service"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return "inactive"
+    return "active" if _resolv_conf_is_resolved(resolv_conf) else "unmanaged"
+
+
+def _resolv_conf_is_resolved(resolv_conf: Path) -> bool:
+    """True when resolv.conf is systemd-resolved's stub/full file (or a copy)."""
+    try:
+        target = resolv_conf.resolve()
+    except OSError:
+        return False
+    if target.is_relative_to("/run/systemd/resolve"):
+        return True
+    try:
+        content = resolv_conf.read_text()
+    except OSError:
+        return False
+    return any(
+        line.split()[:2] == ["nameserver", "127.0.0.53"]
+        for line in content.splitlines()
+    )
+
+
 def derive_netbird_runtime(config_dir: Path) -> tuple[Path, dict[str, str]]:
     """Resolve netbird config path and runtime env for an instance directory."""
     if sys.platform != "linux":

@@ -44,6 +44,7 @@ from wingman.platform import (
     get_platform_config,
     is_root,
     resolved_dns_authorized,
+    resolved_dns_state,
 )
 from wingman.service import (
     is_service_active,
@@ -82,10 +83,15 @@ def _require_kernel_iface_capability(netbird_bin: str) -> None:
 def _warn_dns_unavailable(netbird_bin: str) -> None:
     """Warn (don't block) when a rootless daemon won't get working DNS.
 
-    Rootless NetBird DNS needs two independent grants, both non-fatal if absent
-    (the tunnel still comes up — only name resolution breaks — so warn, don't
-    abort like the interface capability does):
+    Rootless NetBird DNS needs systemd-resolved plus two independent grants,
+    all non-fatal if absent (the tunnel still comes up — only name resolution
+    breaks — so warn, don't abort like the interface capability does):
 
+    * systemd-resolved must be running and own /etc/resolv.conf: a non-root
+      daemon can't rewrite resolv.conf, so resolved is its only route to
+      installing per-link DNS. On a NetworkManager-only host the daemon logs
+      `failed to apply DNS host manager update ... permission denied` and
+      names silently never resolve, even with the two grants below in place.
     * polkit must let the daemon register its resolver with systemd-resolved
       (org.freedesktop.resolve1.set-*); otherwise resolved ignores it entirely
       and `resolvectl status` shows "Current Scopes: none".
@@ -96,6 +102,21 @@ def _warn_dns_unavailable(netbird_bin: str) -> None:
     if is_root():
         return
     problems: list[str] = []
+    resolved_state = resolved_dns_state()
+    if resolved_state == "inactive":
+        problems.append(
+            "  - systemd-resolved is not running; a rootless daemon can only "
+            "install per-link DNS through it (it can't rewrite /etc/resolv.conf). "
+            "Enable it and hand it resolv.conf:\n"
+            "      sudo systemctl enable --now systemd-resolved\n"
+            "      sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf"
+        )
+    elif resolved_state == "unmanaged":
+        problems.append(
+            "  - systemd-resolved is running but /etc/resolv.conf is not its stub, "
+            "so NetBird won't use it. Hand it resolv.conf:\n"
+            "      sudo ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf"
+        )
     if resolved_dns_authorized() is False:
         problems.append(
             "  - polkit denies systemd-resolved updates; install a rule allowing "
@@ -113,7 +134,8 @@ def _warn_dns_unavailable(netbird_bin: str) -> None:
     typer.echo(
         "NetBird DNS / name resolution won't work for this instance (the tunnel "
         "still comes up). Fix:\n" + "\n".join(problems) + "\n"
-        "(The packaged install configures both for you.)",
+        "(The packaged install grants the authorization rule and the capability; "
+        "enabling systemd-resolved is up to the host.)",
         err=True,
     )
 
