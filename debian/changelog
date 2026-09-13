@@ -1,4 +1,4 @@
-wingman (0.1.4-1) unstable; urgency=medium
+wingman (0.1.4) unstable; urgency=medium
 
   * Add a native Debian package for rootless NetBird instances.
   * Restore NetBird file capabilities through a dpkg path trigger.

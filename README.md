@@ -27,15 +27,13 @@ cd wingman/packaging/arch && makepkg -si
 
 ## Install (Ubuntu / Debian)
 
-No native package yet, so install NetBird from its APT repo and wingman with `pipx`.
-Tested on Ubuntu 26.04 (Python 3.14).
+Install NetBird from its official APT repository, then install the `wingman`
+Debian package from a Wingman release that includes Debian assets.
 
 ```bash
-# 1. Prerequisites
+# 1. NetBird (hard dependency)
 sudo apt update
-sudo apt install -y pipx git curl ca-certificates gnupg libcap2-bin
-
-# 2. NetBird (hard dependency) — add its official APT repo, then install
+sudo apt install -y curl ca-certificates gnupg
 curl -fsSL https://pkgs.netbird.io/debian/public.key \
   | sudo gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
 echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
@@ -43,44 +41,14 @@ echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pk
 sudo apt update
 sudo apt install -y netbird
 
-# 3. wingman
-pipx install git+https://github.com/dsandall/wingman.git
-pipx ensurepath   # adds ~/.local/bin to PATH; open a new shell afterwards
+# 2. Download wingman_<version>_all.deb from GitHub Releases, then:
+sudo apt install ./wingman_<version>_all.deb
 ```
 
-### Rootless prerequisites (one time)
-
-wingman runs rootless. Grant the `netbird` binary the capabilities it needs to
-create the WireGuard interface and bind the per-instance DNS resolver:
-
-```bash
-sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip "$(command -v netbird)"
-```
-
-> Unlike the Arch package's pacman hook, APT does **not** reapply file capabilities
-> after a `netbird` upgrade — rerun this `setcap` whenever `apt upgrade` touches
-> netbird (or wire it into an APT `DPkg::Post-Invoke` hook). `wingman up` preflights
-> `CAP_NET_ADMIN` and aborts with the exact command if it has been stripped.
-
-For NetBird name resolution to work rootless, systemd-resolved must accept
-per-interface DNS from the non-root daemon. Install a polkit rule authorizing the
-`sudo` group (Debian/Ubuntu's admin group; the shipped Arch rule under
-`packaging/arch/` uses `wheel`):
-
-```bash
-sudo tee /etc/polkit-1/rules.d/50-wingman-netbird-dns.rules >/dev/null <<'EOF'
-polkit.addRule(function(action, subject) {
-    if ((action.id.indexOf("org.freedesktop.resolve1.set-") === 0 ||
-         action.id == "org.freedesktop.resolve1.revert") &&
-        subject.isInGroup("sudo")) {
-        return polkit.Result.YES;
-    }
-});
-EOF
-```
-
-DNS is non-fatal: without the rule the tunnel still comes up, only NetBird name
-resolution breaks. `wingman up` preflights this and warns without blocking.
+The package installs the rootless prerequisites: the NetBird file capabilities,
+the Debian/Ubuntu `sudo`-group polkit rule for per-interface DNS, and a `dpkg`
+path trigger that reapplies the capabilities whenever a NetBird upgrade replaces
+`/usr/bin/netbird`. No manual `setcap` rerun is required.
 
 To keep instances running across reboot without an active login session:
 
@@ -88,12 +56,16 @@ To keep instances running across reboot without an active login session:
 sudo loginctl enable-linger "$USER"
 ```
 
+For development snapshots without a `.deb`, install with `pipx`; then follow the
+package's [Debian packaging notes](packaging/debian/README.md) to provision the
+same privileges.
+
 ## Usage
 
-wingman runs **rootless** — daemons run as your user, no `sudo` for everyday commands. The AUR package handles the one privileged prerequisite for you (it grants `CAP_NET_ADMIN` to the `netbird` binary so it can create the WireGuard interface, and keeps it applied across netbird upgrades). For a manual install, do it once yourself:
+wingman runs **rootless** — daemons run as your user, no `sudo` for everyday commands. The Arch and Debian packages install the required privileges and keep them across NetBird upgrades. For a manual install, do it once yourself:
 
 ```bash
-sudo setcap cap_net_admin,cap_net_raw+eip $(command -v netbird)
+sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip $(command -v netbird)
 ```
 
 `wingman up` preflights this and aborts with the exact command if it's missing, so you won't be left guessing.
