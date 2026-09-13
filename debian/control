@@ -1,0 +1,30 @@
+Source: wingman
+Section: net
+Priority: optional
+Maintainer: Dylan Sandall <thebudman6@proton.me>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               pybuild-plugin-pyproject,
+               python3-all,
+               python3-hatchling,
+               python3-pytest,
+               python3-rich,
+               python3-typer
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/dsandall/wingman
+
+Package: wingman
+Architecture: all
+Depends: ${misc:Depends},
+         ${python3:Depends},
+         libcap2-bin,
+         netbird,
+         polkit
+Description: manage isolated NetBird instances
+ Wingman runs multiple NetBird instances with separate state, daemon sockets,
+ and WireGuard interfaces. It also provides concise status and peer views.
+ .
+ This package grants the NetBird binary the narrowly required capabilities for
+ rootless instances, configures systemd-resolved access via polkit, and restores
+ those capabilities whenever dpkg replaces /usr/bin/netbird.

@@ -1,0 +1,15 @@
+wingman for Debian
+==================
+
+Wingman instances run as the invoking user. Enable linger for a user whose
+instances should survive reboot:
+
+    sudo loginctl enable-linger "$USER"
+
+The package grants /usr/bin/netbird CAP_NET_ADMIN, CAP_NET_RAW, and
+CAP_NET_BIND_SERVICE. A dpkg path trigger reapplies those capabilities whenever
+a NetBird package transaction replaces that binary. Removing wingman clears the
+capabilities it installed.
+
+The installed polkit rule permits members of Debian's sudo group to configure
+systemd-resolved for their rootless NetBird interfaces.
