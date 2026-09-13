@@ -1,0 +1,10 @@
+// Let rootless NetBird daemons managed by wingman configure per-interface DNS.
+// Debian and Ubuntu administrators normally belong to sudo, rather than Arch's
+// wheel group. They can already become root; use a dedicated group to narrow it.
+polkit.addRule(function(action, subject) {
+    if ((action.id.indexOf("org.freedesktop.resolve1.set-") === 0 ||
+         action.id === "org.freedesktop.resolve1.revert") &&
+        subject.isInGroup("sudo")) {
+        return polkit.Result.YES;
+    }
+});

@@ -1,0 +1,1 @@
+packaging/debian/50-wingman-netbird-dns.rules usr/share/polkit-1/rules.d

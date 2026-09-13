@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+apply_netbird_capabilities() {
+    if [ -x /usr/bin/netbird ]; then
+        /usr/sbin/setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip \
+            /usr/bin/netbird
+    fi
+}
+
+case "$1" in
+    configure|triggered)
+        apply_netbird_capabilities
+        ;;
+esac

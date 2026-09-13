@@ -94,6 +94,25 @@ jobs:
           runuser -u builder -- bash -c \
             "cd '$PWD/packaging/arch' && makepkg --nodeps --clean --cleanbuild"
 
+  debian-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build native Debian package
+        run: |
+          docker run --rm -v "$PWD:/src:ro" debian:trixie bash -lc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              build-essential debhelper dh-python dpkg-dev pybuild-plugin-pyproject python3-all \
+              python3-hatchling python3-pytest python3-rich python3-typer
+            cp -a /src /work
+            cd /work
+            dpkg-buildpackage -us -uc -S
+            dpkg-buildpackage -us -uc -b
+          '
+
   check:
     if: always()
     needs:
@@ -101,6 +120,7 @@ jobs:
       - pyright
       - test
       - package
+      - debian-package
 
     runs-on: ubuntu-latest
 

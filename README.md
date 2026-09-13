@@ -25,12 +25,47 @@ git clone https://github.com/dsandall/wingman.git
 cd wingman/packaging/arch && makepkg -si
 ```
 
-## Usage
+## Install (Ubuntu / Debian)
 
-wingman runs **rootless** — daemons run as your user, no `sudo` for everyday commands. The AUR package handles the one privileged prerequisite for you (it grants `CAP_NET_ADMIN` to the `netbird` binary so it can create the WireGuard interface, and keeps it applied across netbird upgrades). For a manual install, do it once yourself:
+Install NetBird from its official APT repository, then install the `wingman`
+Debian package from a Wingman release that includes Debian assets.
 
 ```bash
-sudo setcap cap_net_admin,cap_net_raw+eip $(command -v netbird)
+# 1. NetBird (hard dependency)
+sudo apt update
+sudo apt install -y curl ca-certificates gnupg
+curl -fsSL https://pkgs.netbird.io/debian/public.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/netbird-archive-keyring.gpg
+echo 'deb [signed-by=/usr/share/keyrings/netbird-archive-keyring.gpg] https://pkgs.netbird.io/debian stable main' \
+  | sudo tee /etc/apt/sources.list.d/netbird.list
+sudo apt update
+sudo apt install -y netbird
+
+# 2. Download wingman_<version>_all.deb from GitHub Releases, then:
+sudo apt install ./wingman_<version>_all.deb
+```
+
+The package installs the rootless prerequisites: the NetBird file capabilities,
+the Debian/Ubuntu `sudo`-group polkit rule for per-interface DNS, and a `dpkg`
+path trigger that reapplies the capabilities whenever a NetBird upgrade replaces
+`/usr/bin/netbird`. No manual `setcap` rerun is required.
+
+To keep instances running across reboot without an active login session:
+
+```bash
+sudo loginctl enable-linger "$USER"
+```
+
+For development snapshots without a `.deb`, install with `pipx`; then follow the
+package's [Debian packaging notes](packaging/debian/README.md) to provision the
+same privileges.
+
+## Usage
+
+wingman runs **rootless** — daemons run as your user, no `sudo` for everyday commands. The Arch and Debian packages install the required privileges and keep them across NetBird upgrades. For a manual install, do it once yourself:
+
+```bash
+sudo setcap cap_net_admin,cap_net_raw,cap_net_bind_service+eip $(command -v netbird)
 ```
 
 `wingman up` preflights this and aborts with the exact command if it's missing, so you won't be left guessing.
