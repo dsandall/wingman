@@ -732,7 +732,7 @@ class TestParsePeerLinesJson:
             '{"fqdn":"cubert.netbird.cloud","status":"Idle",'
             '"netbirdIp":"100.64.18.8",'
             '"lastWireguardHandshake":""}'
-            ']}}'
+            "]}}"
         )
         self_entry, peers = _parse_peer_lines_json(json_data)
         assert self_entry is not None
@@ -779,7 +779,7 @@ class TestParsePeerLinesJson:
             '"peers":{"details":['
             '{"fqdn":"host.netbird.cloud","status":"Connected",'
             '"lastWireguardHandshake":"2025-09-13T10:29:30Z"}'
-            ']}}'
+            "]}}"
         )
         _, peers = _parse_peer_lines_json(json_data)
         assert len(peers) == 1
@@ -795,13 +795,13 @@ class TestParsePeerLinesJson:
             '{"fqdn":"host.netbird.cloud","status":"Idle",'
             '"netbirdIp":"100.64.0.1",'
             '"lastWireguardHandshake":"0001-01-01T00:00:00Z"}'
-            ']}}'
+            "]}}"
         )
         _, peers = _parse_peer_lines_json(json_data)
         assert peers[0][3] == "Never"
 
     def test_sorts_connected_first(self) -> None:
-        from wingman.instance import _peer_sort_key, _STATUS_RANK
+        from wingman.instance import _peer_sort_key
 
         # Verify the existing sort key still works with 4-tuple peers.
         peers: list[tuple[str, str, str | None, str]] = [

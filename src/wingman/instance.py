@@ -442,9 +442,7 @@ def _parse_peer_lines_json(
     # Self is always "Connected" (we wouldn't have a daemon without it).
     self_last_seen: str = "Now"
     self_entry: tuple[str, str | None, str] | None = (
-        (self_fqdn.split(".", 1)[0], self_ip, self_last_seen)
-        if self_fqdn
-        else None
+        (self_fqdn.split(".", 1)[0], self_ip, self_last_seen) if self_fqdn else None
     )
 
     # ------------------------------------------------------------------- peers

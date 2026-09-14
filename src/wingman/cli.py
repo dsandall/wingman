@@ -99,9 +99,7 @@ def peers(
     ] = None,
     verbose: Annotated[
         bool,
-        typer.Option(
-            "--verbose", "-v", help="Also show each peer's NetBird IP"
-        ),
+        typer.Option("--verbose", "-v", help="Also show each peer's NetBird IP"),
     ] = False,
 ) -> None:
     """List peers and their connection status for one or all instances."""
