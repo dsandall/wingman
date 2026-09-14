@@ -719,11 +719,13 @@ class TestWarnDnsUnavailable:
 
 
 class TestParsePeerLinesJson:
-    def test_parses_name_status_ip_handshake(self) -> None:
+    def test_parses_self_and_peers(self) -> None:
         from wingman.instance import _parse_peer_lines_json
 
         json_data = (
-            '{"peers":{"details":['
+            '{"fqdn":"ice-cubed.netbird.cloud",'
+            '"netbirdIp":"100.64.223.240/16",'
+            '"peers":{"details":['
             '{"fqdn":"lynx.netbird.cloud","status":"Connected",'
             '"netbirdIp":"100.64.135.69",'
             '"lastWireguardHandshake":"2025-09-13T10:29:30Z"},'
@@ -732,57 +734,71 @@ class TestParsePeerLinesJson:
             '"lastWireguardHandshake":""}'
             ']}}'
         )
-        result = _parse_peer_lines_json(json_data)
-        assert len(result) == 2
+        self_entry, peers = _parse_peer_lines_json(json_data)
+        assert self_entry is not None
+        assert self_entry[0] == "ice-cubed"
+        assert self_entry[1] == "100.64.223.240"
+        assert self_entry[2] == "Now"
+        assert len(peers) == 2
         # Connected peer (lynx)
-        assert result[0][0] == "lynx"
-        assert result[0][1] == "Connected"
-        assert result[0][2] == "100.64.135.69"
-        assert "ago" in result[0][3]  # handshake is in the past
+        assert peers[0][0] == "lynx"
+        assert peers[0][1] == "Connected"
+        assert peers[0][2] == "100.64.135.69"
+        assert "ago" in peers[0][3]
         # Idle peer (cubert) with no handshake
-        assert result[1][0] == "cubert"
-        assert result[1][1] == "Idle"
-        assert result[1][2] == "100.64.18.8"
-        assert result[1][3] == "Never"
+        assert peers[1][0] == "cubert"
+        assert peers[1][1] == "Idle"
+        assert peers[1][2] == "100.64.18.8"
+        assert peers[1][3] == "Never"
 
     def test_handles_missing_peers_key(self) -> None:
         from wingman.instance import _parse_peer_lines_json
 
-        assert _parse_peer_lines_json("{}") == []
-        assert _parse_peer_lines_json('{"peers":{}}') == []
-        assert _parse_peer_lines_json('{"peers":{"details":[]}}') == []
+        _, peers = _parse_peer_lines_json("{}")
+        assert peers == []
+        _, peers = _parse_peer_lines_json('{"peers":{}}')
+        assert peers == []
+        _, peers = _parse_peer_lines_json('{"peers":{"details":[]}}')
+        assert peers == []
 
     def test_handles_invalid_json(self) -> None:
         from wingman.instance import _parse_peer_lines_json
 
-        assert _parse_peer_lines_json("not json") == []
-        assert _parse_peer_lines_json("") == []
+        self_entry, peers = _parse_peer_lines_json("not json")
+        assert self_entry is None
+        assert peers == []
+        _, peers = _parse_peer_lines_json("")
+        assert peers == []
 
     def test_omits_ip_when_absent(self) -> None:
         from wingman.instance import _parse_peer_lines_json
 
         json_data = (
-            '{"peers":{"details":['
+            '{"fqdn":"self.netbird.cloud",'
+            '"netbirdIp":"100.64.0.1",'
+            '"peers":{"details":['
             '{"fqdn":"host.netbird.cloud","status":"Connected",'
             '"lastWireguardHandshake":"2025-09-13T10:29:30Z"}'
             ']}}'
         )
-        result = _parse_peer_lines_json(json_data)
-        assert len(result) == 1
-        assert result[0][2] is None
+        _, peers = _parse_peer_lines_json(json_data)
+        assert len(peers) == 1
+        assert peers[0][2] is None
 
     def test_zero_handshake_is_never(self) -> None:
         from wingman.instance import _parse_peer_lines_json
 
         json_data = (
-            '{"peers":{"details":['
+            '{"fqdn":"self.netbird.cloud",'
+            '"netbirdIp":"100.64.0.2",'
+            '"peers":{"details":['
             '{"fqdn":"host.netbird.cloud","status":"Idle",'
             '"netbirdIp":"100.64.0.1",'
             '"lastWireguardHandshake":"0001-01-01T00:00:00Z"}'
             ']}}'
         )
-        result = _parse_peer_lines_json(json_data)
-        assert result[0][3] == "Never"
+        _, peers = _parse_peer_lines_json(json_data)
+        assert peers[0][3] == "Never"
 
     def test_sorts_connected_first(self) -> None:
         from wingman.instance import _peer_sort_key, _STATUS_RANK

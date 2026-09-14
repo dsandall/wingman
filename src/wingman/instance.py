@@ -420,17 +420,34 @@ PeerInfo = tuple[str, str, str | None, str | None]
 
 def _parse_peer_lines_json(
     json_output: str,
-) -> list[tuple[str, str, str | None, str]]:
-    """Extract (name, status, ip, last_handshake) from `netbird status --json`.
+) -> tuple[tuple[str, str | None, str] | None, list[tuple[str, str, str | None, str]]]:
+    """Extract self identity and peer list from `netbird status --json`.
 
-    The JSON structure has ``output.peers.details[]`` with fields like
-    ``fqdn``, ``status``, ``netbirdIp``, and ``lastWireguardHandshake``.
+    Returns ``(self_name, self_ip, self_last_seen)``, ``(peers)`` where each
+    peer is ``(name, status, ip, last_handshake)``.
+
+    The JSON structure has top-level ``fqdn`` / ``netbirdIp`` for self, and
+    ``output.peers.details[]`` with fields like ``fqdn``, ``status``,
+    ``netbirdIp``, and ``lastWireguardHandshake`` for peers.
     """
     try:
         data = json.loads(json_output)
     except (json.JSONDecodeError, TypeError):
-        return []
+        return None, []
 
+    # ------------------------------------------------------------------ self
+    self_fqdn: str | None = data.get("fqdn") or None
+    self_ip_raw: str | None = data.get("netbirdIp") or None
+    self_ip: str | None = self_ip_raw.split("/")[0] if self_ip_raw else None
+    # Self is always "Connected" (we wouldn't have a daemon without it).
+    self_last_seen: str = "Now"
+    self_entry: tuple[str, str | None, str] | None = (
+        (self_fqdn.split(".", 1)[0], self_ip, self_last_seen)
+        if self_fqdn
+        else None
+    )
+
+    # ------------------------------------------------------------------- peers
     peers: list[tuple[str, str, str | None, str]] = []
     details: list[dict] = data.get("peers", {}).get("details", [])
 
@@ -477,7 +494,7 @@ def _parse_peer_lines_json(
 
         peers.append((name, status, ip, last_handshake))
 
-    return peers
+    return self_entry, peers
 
 
 # The local node's own identity comes from the non-detail `netbird status`
@@ -518,7 +535,7 @@ def _show_instance_peers(
         typer.echo(f"--- {name} (unreachable) ---")
         return
 
-    peers = _parse_peer_lines_json(json_result.stdout)
+    self_entry, peers = _parse_peer_lines_json(json_result.stdout)
 
     table = Table(
         title=f"[bold]{name}[/bold]",
@@ -532,20 +549,17 @@ def _show_instance_peers(
         table.add_column("IP", style="dim")
     table.add_column("LAST SEEN", style="dim", justify="right")
 
-    # Show self as the first row.
-    for peer_name, status, ip, last_seen in peers:
-        if status == "Connected":
-            table.add_row(
-                f"[cyan]{peer_name}[/cyan]",
-                "self",
-                ip or "-",
-                last_seen,
-            )
-            break
+    # Show self as the first row (from top-level JSON fqdn/netbirdIp).
+    if self_entry:
+        self_name, self_ip, self_last_seen = self_entry
+        table.add_row(
+            f"[cyan]{self_name}[/cyan]",
+            "self",
+            self_ip or "-",
+            self_last_seen,
+        )
 
-    for peer_name, status, ip, last_seen in sorted(
-        [p for p in peers if p[1] != "Connected"], key=_peer_sort_key
-    ):
+    for peer_name, status, ip, last_seen in sorted(peers, key=_peer_sort_key):
         style = _STATUS_STYLE.get(status.lower())
         status_cell = f"[{style}]{status}[/{style}]" if style else status
         row: list[str] = [peer_name, status_cell]
