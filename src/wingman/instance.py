@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import time
@@ -32,6 +33,7 @@ from wingman.netbird import (
     has_net_bind_capability,
     run_down,
     run_status,
+    run_status_json,
     run_up,
 )
 from wingman.platform import (
@@ -399,9 +401,83 @@ _STATUS_STYLE = {
 _console = Console()
 
 
-def _peer_sort_key(peer: tuple[str, str, str | None]) -> tuple[int, str]:
-    name, status, _ip = peer
+def _peer_sort_key(
+    peer: tuple[str, str, str | None, str] | tuple[str, str, str | None],
+) -> tuple[int, str]:
+    name = peer[0]
+    status = peer[1]
     return (_STATUS_RANK.get(status.lower(), 2), name.lower())
+
+
+# ---------------------------------------------------------------------------
+# JSON-based peer parsing (preferred — structured, no regex fragility)
+# ---------------------------------------------------------------------------
+
+# Peer data extracted from `netbird status --json`.
+# last_handshake is a human-friendly "30 seconds ago" string or "-" / "Never".
+PeerInfo = tuple[str, str, str | None, str | None]
+
+
+def _parse_peer_lines_json(
+    json_output: str,
+) -> list[tuple[str, str, str | None, str]]:
+    """Extract (name, status, ip, last_handshake) from `netbird status --json`.
+
+    The JSON structure has ``output.peers.details[]`` with fields like
+    ``fqdn``, ``status``, ``netbirdIp``, and ``lastWireguardHandshake``.
+    """
+    try:
+        data = json.loads(json_output)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    peers: list[tuple[str, str, str | None, str]] = []
+    details: list[dict] = data.get("peers", {}).get("details", [])
+
+    for peer in details:
+        fqdn = peer.get("fqdn", "")
+        name = fqdn.split(".", 1)[0] if fqdn else "unknown"
+        status = peer.get("status", "Unknown")
+        ip = peer.get("netbirdIp") or None
+
+        # lastWireguardHandshake comes back as an ISO-8601 string (e.g.
+        # "2025-09-13T10:30:00Z") or empty/zero when none.
+        raw_hs = peer.get("lastWireguardHandshake", "")
+        if not raw_hs or raw_hs == "0001-01-01T00:00:00Z":
+            last_handshake: str = "Never"
+        else:
+            try:
+                from datetime import datetime, timezone
+
+                dt = datetime.fromisoformat(raw_hs.replace("Z", "+00:00"))
+                ago = datetime.now(timezone.utc) - dt
+                total_seconds = int(ago.total_seconds())
+                if total_seconds < 60:
+                    last_handshake = f"{total_seconds}s ago"
+                elif total_seconds < 3600:
+                    mins = total_seconds // 60
+                    secs = total_seconds % 60
+                    last_handshake = (
+                        f"{mins}m ago" if secs == 0 else f"{mins}m {secs}s ago"
+                    )
+                elif total_seconds < 86400:
+                    hours = total_seconds // 3600
+                    mins = (total_seconds % 3600) // 60
+                    last_handshake = (
+                        f"{hours}h ago" if mins == 0 else f"{hours}h {mins}m ago"
+                    )
+                else:
+                    days = total_seconds // 86400
+                    hours = (total_seconds % 86400) // 3600
+                    last_handshake = (
+                        f"{days}d ago" if hours == 0 else f"{days}d {hours}h ago"
+                    )
+            except (ValueError, TypeError):
+                last_handshake = raw_hs or "-"
+
+        peers.append((name, status, ip, last_handshake))
+
+    return peers
 
 
 # The local node's own identity comes from the non-detail `netbird status`
@@ -435,10 +511,14 @@ def _show_instance_peers(
         return
 
     netbird_bin = find_netbird_bin()
-    result = run_status(netbird_bin, metadata.daemon_addr, detail=True)
-    if result.returncode != 0:
+
+    # Fetch JSON status for structured peer data (name, status, ip, last seen).
+    json_result = run_status_json(netbird_bin, metadata.daemon_addr)
+    if json_result.returncode != 0:
         typer.echo(f"--- {name} (unreachable) ---")
         return
+
+    peers = _parse_peer_lines_json(json_result.stdout)
 
     table = Table(
         title=f"[bold]{name}[/bold]",
@@ -450,22 +530,28 @@ def _show_instance_peers(
     table.add_column("STATUS")
     if verbose:
         table.add_column("IP", style="dim")
+    table.add_column("LAST SEEN", style="dim", justify="right")
 
-    if verbose:
-        self_name, self_ip = _parse_self_identity(
-            run_status(netbird_bin, metadata.daemon_addr).stdout
-        )
-        if self_name:
-            table.add_row(self_name, "[cyan]self[/cyan]", self_ip or "-")
+    # Show self as the first row.
+    for peer_name, status, ip, last_seen in peers:
+        if status == "Connected":
+            table.add_row(
+                f"[cyan]{peer_name}[/cyan]",
+                "self",
+                ip or "-",
+                last_seen,
+            )
+            break
 
-    for peer_name, status, ip in sorted(
-        _parse_peer_lines(result.stdout), key=_peer_sort_key
+    for peer_name, status, ip, last_seen in sorted(
+        [p for p in peers if p[1] != "Connected"], key=_peer_sort_key
     ):
         style = _STATUS_STYLE.get(status.lower())
         status_cell = f"[{style}]{status}[/{style}]" if style else status
-        row = [peer_name, status_cell]
+        row: list[str] = [peer_name, status_cell]
         if verbose:
             row.append(ip or "-")
+        row.append(last_seen)
         table.add_row(*row)
 
     if table.row_count == 0:

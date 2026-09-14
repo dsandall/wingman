@@ -146,3 +146,12 @@ def run_status(
     if detail:
         cmd.append("--detail")
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+
+def run_status_json(
+    netbird_bin: str,
+    daemon_addr: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run `netbird status --json` and return raw stdout (caller parses JSON)."""
+    cmd = [netbird_bin, "status", "--daemon-addr", daemon_addr, "--json"]
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
