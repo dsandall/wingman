@@ -817,6 +817,15 @@ class TestParsePeerLinesJson:
         _, peers = _parse_peer_lines_json('{"peers":{"details":[]}}')
         assert peers == []
 
+    def test_handles_null_peers_and_details(self) -> None:
+        # netbird emits "details": null for an instance with no peers.
+        from wingman.instance import _parse_peer_lines_json
+
+        _, peers = _parse_peer_lines_json('{"peers":{"details":null}}')
+        assert peers == []
+        _, peers = _parse_peer_lines_json('{"peers":null}')
+        assert peers == []
+
     def test_handles_invalid_json(self) -> None:
         from wingman.instance import _parse_peer_lines_json
 

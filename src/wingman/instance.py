@@ -469,7 +469,7 @@ def _parse_peer_lines_json(
 
     # ------------------------------------------------------------------- peers
     peers: list[tuple[str, str, str | None, str]] = []
-    details: list[dict] = data.get("peers", {}).get("details", [])
+    details: list[dict] = (data.get("peers") or {}).get("details") or []
 
     for peer in details:
         fqdn = peer.get("fqdn", "")
