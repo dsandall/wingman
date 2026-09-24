@@ -15,10 +15,12 @@ from wingman.config import (
     InstanceMetadata,
     ensure_instance_dir,
     list_instances,
+    read_last_seen,
     read_metadata,
     read_pid,
     remove_pid,
     seed_netbird_config,
+    write_last_seen,
     write_metadata,
 )
 from wingman.daemon import (
@@ -440,8 +442,35 @@ def _peer_sort_key(
 PeerInfo = tuple[str, str, str | None, str | None]
 
 
+def _format_ago(dt: datetime) -> str:
+    """Render a timestamp as a compact relative age like "3m 12s ago"."""
+    total_seconds = int((datetime.now(timezone.utc) - dt).total_seconds())
+    if total_seconds < 60:
+        return f"{total_seconds}s ago"
+    if total_seconds < 3600:
+        mins, secs = divmod(total_seconds, 60)
+        return f"{mins}m ago" if secs == 0 else f"{mins}m {secs}s ago"
+    if total_seconds < 86400:
+        hours, mins = total_seconds // 3600, (total_seconds % 3600) // 60
+        return f"{hours}h ago" if mins == 0 else f"{hours}h {mins}m ago"
+    days, hours = total_seconds // 86400, (total_seconds % 86400) // 3600
+    return f"{days}d ago" if hours == 0 else f"{days}d {hours}h ago"
+
+
+def _parse_handshake(raw: str | None) -> datetime | None:
+    """Parse NetBird's ISO-8601 handshake time; None for empty/zero/garbage."""
+    if not raw or raw.startswith("0001-01-01"):
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 def _parse_peer_lines_json(
     json_output: str,
+    last_seen: dict[str, str] | None = None,
 ) -> tuple[tuple[str, str | None, str] | None, list[tuple[str, str, str | None, str]]]:
     """Extract self identity and peer list from `netbird status --json`.
 
@@ -451,6 +480,11 @@ def _parse_peer_lines_json(
     The JSON structure has top-level ``fqdn`` / ``netbirdIp`` for self, and
     ``output.peers.details[]`` with fields like ``fqdn``, ``status``,
     ``netbirdIp``, and ``lastWireguardHandshake`` for peers.
+
+    ``last_seen`` is the instance's persisted record (peer key -> ISO time of
+    the newest handshake wingman has observed). It is updated in place, and
+    used as a fallback when NetBird reports no handshake — which it does for
+    every peer after a daemon restart and for lazy/idle peers.
     """
     try:
         data = json.loads(json_output)
@@ -477,42 +511,17 @@ def _parse_peer_lines_json(
         status = peer.get("status", "Unknown")
         ip = peer.get("netbirdIp") or None
 
-        # lastWireguardHandshake comes back as an ISO-8601 string (e.g.
-        # "2025-09-13T10:30:00Z") or empty/zero when none.
-        raw_hs = peer.get("lastWireguardHandshake", "")
-        if not raw_hs or raw_hs == "0001-01-01T00:00:00Z":
-            last_handshake: str = "Never"
-        else:
-            try:
-                from datetime import datetime, timezone
+        # The WireGuard public key is the stable identity; fqdn can be renamed.
+        key = peer.get("publicKey") or fqdn
+        seen = _parse_handshake(peer.get("lastWireguardHandshake"))
+        if last_seen is not None and key:
+            recorded = _parse_handshake(last_seen.get(key))
+            if seen is not None and (recorded is None or seen > recorded):
+                last_seen[key] = seen.isoformat()
+            elif recorded is not None:
+                seen = recorded
 
-                dt = datetime.fromisoformat(raw_hs.replace("Z", "+00:00"))
-                ago = datetime.now(timezone.utc) - dt
-                total_seconds = int(ago.total_seconds())
-                if total_seconds < 60:
-                    last_handshake = f"{total_seconds}s ago"
-                elif total_seconds < 3600:
-                    mins = total_seconds // 60
-                    secs = total_seconds % 60
-                    last_handshake = (
-                        f"{mins}m ago" if secs == 0 else f"{mins}m {secs}s ago"
-                    )
-                elif total_seconds < 86400:
-                    hours = total_seconds // 3600
-                    mins = (total_seconds % 3600) // 60
-                    last_handshake = (
-                        f"{hours}h ago" if mins == 0 else f"{hours}h {mins}m ago"
-                    )
-                else:
-                    days = total_seconds // 86400
-                    hours = (total_seconds % 86400) // 3600
-                    last_handshake = (
-                        f"{days}d ago" if hours == 0 else f"{days}d {hours}h ago"
-                    )
-            except (ValueError, TypeError):
-                last_handshake = raw_hs or "-"
-
-        peers.append((name, status, ip, last_handshake))
+        peers.append((name, status, ip, _format_ago(seen) if seen else "Never"))
 
     return self_entry, peers
 
@@ -555,7 +564,9 @@ def _show_instance_peers(
         typer.echo(f"--- {name} (unreachable) ---")
         return
 
-    self_entry, peers = _parse_peer_lines_json(json_result.stdout)
+    last_seen = read_last_seen(platform.config_root, name)
+    self_entry, peers = _parse_peer_lines_json(json_result.stdout, last_seen)
+    write_last_seen(platform.config_root, name, last_seen)
 
     table = Table(
         title=f"[bold]{name}[/bold]",
@@ -572,12 +583,11 @@ def _show_instance_peers(
     # Show self as the first row (from top-level JSON fqdn/netbirdIp).
     if self_entry:
         self_name, self_ip, self_last_seen = self_entry
-        table.add_row(
-            f"[cyan]{self_name}[/cyan]",
-            "self",
-            self_ip or "-",
-            self_last_seen,
-        )
+        self_row = [f"[cyan]{self_name}[/cyan]", "self"]
+        if verbose:
+            self_row.append(self_ip or "-")
+        self_row.append(self_last_seen)
+        table.add_row(*self_row)
 
     for peer_name, status, ip, last_seen in sorted(peers, key=_peer_sort_key):
         style = _STATUS_STYLE.get(status.lower())

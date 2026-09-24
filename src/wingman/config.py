@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -53,6 +54,23 @@ def read_metadata(config_root: Path, name: str) -> InstanceMetadata | None:
     data = json.loads(path.read_text())
     data.setdefault("service_registered", False)
     return InstanceMetadata(**data)
+
+
+def read_last_seen(config_root: Path, name: str) -> dict[str, str]:
+    """Peer key -> ISO time of the newest WireGuard handshake wingman observed."""
+    path = instance_dir(config_root, name) / "last_seen.json"
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_last_seen(config_root: Path, name: str, last_seen: dict[str, str]) -> None:
+    path = instance_dir(config_root, name) / "last_seen.json"
+    # A read-only config dir just means no history; never fail `peers` over it.
+    with contextlib.suppress(OSError):
+        path.write_text(json.dumps(last_seen, indent=2, sort_keys=True))
 
 
 def list_instances(config_root: Path) -> list[str]:

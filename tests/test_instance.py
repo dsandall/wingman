@@ -865,6 +865,40 @@ class TestParsePeerLinesJson:
         _, peers = _parse_peer_lines_json(json_data)
         assert peers[0][3] == "Never"
 
+    def test_last_seen_records_and_falls_back(self) -> None:
+        from wingman.instance import _parse_peer_lines_json
+
+        def status(handshake: str) -> str:
+            return (
+                '{"fqdn":"self.netbird.cloud","peers":{"details":['
+                '{"fqdn":"host.netbird.cloud","status":"Idle",'
+                '"publicKey":"KEY","lastWireguardHandshake":"' + handshake + '"}'
+                "]}}"
+            )
+
+        record: dict[str, str] = {}
+        _parse_peer_lines_json(status("2025-09-13T10:29:30Z"), record)
+        assert record == {"KEY": "2025-09-13T10:29:30+00:00"}
+
+        # Daemon restarted: NetBird forgot the handshake, the record didn't.
+        _, peers = _parse_peer_lines_json(status("0001-01-01T00:00:00Z"), record)
+        assert peers[0][3].endswith("ago")
+        assert record == {"KEY": "2025-09-13T10:29:30+00:00"}
+
+        # An older handshake never overwrites a newer one.
+        _parse_peer_lines_json(status("2025-09-01T00:00:00Z"), record)
+        assert record == {"KEY": "2025-09-13T10:29:30+00:00"}
+
+    def test_last_seen_round_trip(self, tmp_path: Path) -> None:
+        from wingman.config import read_last_seen, write_last_seen
+
+        (tmp_path / "work").mkdir()
+        assert read_last_seen(tmp_path, "work") == {}
+        write_last_seen(tmp_path, "work", {"KEY": "2025-09-13T10:29:30+00:00"})
+        assert read_last_seen(tmp_path, "work") == {"KEY": "2025-09-13T10:29:30+00:00"}
+        (tmp_path / "work" / "last_seen.json").write_text("garbage")
+        assert read_last_seen(tmp_path, "work") == {}
+
     def test_sorts_connected_first(self) -> None:
         from wingman.instance import _peer_sort_key
 
