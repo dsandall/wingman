@@ -124,6 +124,18 @@ def _instance_running(name: str, platform: PlatformConfig) -> bool:
     return pid is not None and is_process_alive(pid)
 
 
+# `netbird status` prints "Daemon status: <state>" (NeedsLogin, LoginFailed,
+# SessionExpired, ...) only when the daemon is *not* logged in; a connected
+# daemon prints its Management/Signal summary instead.
+_DAEMON_STATUS_RE = re.compile(r"^Daemon status:\s*(\S+)", re.MULTILINE)
+
+
+def _login_problem(status_output: str) -> str | None:
+    """The daemon's not-logged-in state from `netbird status`, or None."""
+    match = _DAEMON_STATUS_RE.search(status_output)
+    return match.group(1) if match else None
+
+
 def _wait_daemon_ready(netbird_bin: str, daemon_addr: str, attempts: int = 20) -> bool:
     """Poll until the daemon answers on its socket — systemd start is async."""
     for _ in range(attempts):
@@ -213,11 +225,22 @@ def up(
                 )
                 metadata.service_registered = True
                 write_metadata(platform.config_root, metadata)
-            typer.echo(f"Instance '{name}' is already running.")
-            return
-        # Running without metadata — a leftover from a failed start. Tear it
-        # down (service and/or supervised daemon) and start cleanly.
-        typer.echo(f"Cleaning up orphaned instance '{name}'...")
+            result = run_status(netbird_bin, metadata.daemon_addr)
+            state = (
+                _login_problem(result.stdout)
+                if result.returncode == 0
+                else "unreachable"
+            )
+            if state is None:
+                typer.echo(f"Instance '{name}' is already up.")
+                return
+            # Running but not logged in (e.g. it started before netbird got its
+            # capabilities, or the session expired). File capabilities only
+            # take effect on exec, so restart the daemon rather than reusing it.
+            typer.echo(f"Instance '{name}' is running but {state}; restarting...")
+        else:
+            # Running without metadata — a leftover from a failed start.
+            typer.echo(f"Cleaning up orphaned instance '{name}'...")
         stop_service(name)
         stop_daemon(platform.config_root, name)
 
@@ -344,7 +367,14 @@ def _show_instance_status(name: str, platform: PlatformConfig) -> None:
         else:
             label = "service"
         typer.echo(f"--- {name} ({label}) ---")
-        typer.echo(result.stdout or result.stderr)
+        state = _login_problem(result.stdout)
+        if state is not None:
+            # Replace NetBird's "run netbird up" advice, which targets the
+            # default daemon rather than this instance.
+            typer.echo(f"Daemon status: {state}")
+            typer.echo(f"Run `wingman up {name}` to connect.\n")
+        else:
+            typer.echo(result.stdout or result.stderr)
     else:
         typer.echo(f"--- {name} (stopped) ---")
 
