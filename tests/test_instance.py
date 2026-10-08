@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from wingman.config import (
     InstanceMetadata,
@@ -914,3 +917,44 @@ class TestParsePeerLinesJson:
         ordered = sorted(others, key=_peer_sort_key)
         assert ordered[0][0] == "yankee"
         assert ordered[1][0] == "zeta"
+
+
+class TestFqdnCollisions:
+    def test_peer_fqdns_lowercases_and_skips_blank(self) -> None:
+        from wingman.instance import _peer_fqdns
+
+        data = json.dumps(
+            {"peers": {"details": [{"fqdn": "Design-Desktop.netbird.cloud"}, {}]}}
+        )
+        assert _peer_fqdns(data) == {"design-desktop.netbird.cloud"}
+        assert _peer_fqdns("not json") == set()
+        assert _peer_fqdns('{"peers":null}') == set()
+
+    def test_finds_names_shared_across_instances(self) -> None:
+        from wingman.instance import _find_fqdn_collisions
+
+        collisions = _find_fqdn_collisions(
+            {
+                "work": {"design-desktop.netbird.cloud", "lab-top.netbird.cloud"},
+                "personal": {"design-desktop.netbird.cloud", "spi-xi.netbird.cloud"},
+            }
+        )
+        assert collisions == {"design-desktop.netbird.cloud": ["personal", "work"]}
+
+    def test_warning_names_collision_and_fix(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from wingman.instance import _warn_fqdn_collisions
+
+        _warn_fqdn_collisions({"design-desktop.netbird.cloud": ["personal", "work"]})
+        err = capsys.readouterr().err
+        assert "design-desktop.netbird.cloud  (personal, work)" in err
+        assert "DNS domain" in err
+
+    def test_no_warning_without_collisions(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from wingman.instance import _warn_fqdn_collisions
+
+        _warn_fqdn_collisions({})
+        assert capsys.readouterr().err == ""

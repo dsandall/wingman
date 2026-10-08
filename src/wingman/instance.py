@@ -548,13 +548,53 @@ def _parse_self_identity(status_output: str) -> tuple[str | None, str | None]:
     return name, ip
 
 
+def _peer_fqdns(json_output: str) -> set[str]:
+    """Every peer FQDN (lowercased) in `netbird status --json` output."""
+    try:
+        data = json.loads(json_output)
+    except (json.JSONDecodeError, TypeError):
+        return set()
+    details: list[dict] = (data.get("peers") or {}).get("details") or []
+    return {p["fqdn"].lower() for p in details if p.get("fqdn")}
+
+
+def _find_fqdn_collisions(fqdns: dict[str, set[str]]) -> dict[str, list[str]]:
+    """Map each FQDN present in more than one instance to those instances."""
+    owners: dict[str, list[str]] = {}
+    for inst_name, names in fqdns.items():
+        for fqdn in names:
+            owners.setdefault(fqdn, []).append(inst_name)
+    return {f: sorted(o) for f, o in sorted(owners.items()) if len(o) > 1}
+
+
+def _warn_fqdn_collisions(collisions: dict[str, list[str]]) -> None:
+    # Every instance registers its account's DNS domain with systemd-resolved,
+    # which asks all of them and takes the first answer — so a name that exists
+    # in two accounts resolves to either account's peer, effectively at random.
+    if not collisions:
+        return
+    typer.echo(
+        "Warning: these names exist in more than one instance, so DNS returns "
+        "whichever instance answers first:",
+        err=True,
+    )
+    for fqdn, owners in collisions.items():
+        typer.echo(f"  {fqdn}  ({', '.join(owners)})", err=True)
+    typer.echo(
+        "  Fix: give one account its own DNS domain (NetBird dashboard > "
+        "Settings > Networks > DNS domain). Until then, use the peer's IP.",
+        err=True,
+    )
+
+
 def _show_instance_peers(
     name: str, platform: PlatformConfig, verbose: bool = False
-) -> None:
+) -> set[str]:
+    """Print an instance's peer table; return its peer FQDNs."""
     metadata = read_metadata(platform.config_root, name)
     if metadata is None:
         typer.echo(f"{name}: not found")
-        return
+        return set()
 
     netbird_bin = find_netbird_bin()
 
@@ -562,7 +602,7 @@ def _show_instance_peers(
     json_result = run_status_json(netbird_bin, metadata.daemon_addr)
     if json_result.returncode != 0:
         typer.echo(f"--- {name} (unreachable) ---")
-        return
+        return set()
 
     last_seen = read_last_seen(platform.config_root, name)
     self_entry, peers = _parse_peer_lines_json(json_result.stdout, last_seen)
@@ -601,8 +641,9 @@ def _show_instance_peers(
     if table.row_count == 0:
         typer.echo(f"--- {name} ---")
         typer.echo("(no peers)")
-        return
-    _console.print(table)
+    else:
+        _console.print(table)
+    return _peer_fqdns(json_result.stdout)
 
 
 def peers(name: str | None = None, verbose: bool = False) -> None:
@@ -616,8 +657,11 @@ def peers(name: str | None = None, verbose: bool = False) -> None:
     if not instances:
         typer.echo("No instances found.")
         return
-    for inst_name in instances:
-        _show_instance_peers(inst_name, platform, verbose)
+    fqdns = {
+        inst_name: _show_instance_peers(inst_name, platform, verbose)
+        for inst_name in instances
+    }
+    _warn_fqdn_collisions(_find_fqdn_collisions(fqdns))
 
 
 def list_all() -> None:
