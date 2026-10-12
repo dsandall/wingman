@@ -170,6 +170,7 @@ class TestUp:
             patch("wingman.instance.has_net_bind_capability", return_value=True),
             patch("wingman.instance.resolved_dns_state", return_value="active"),
             patch("wingman.instance.is_service_active", return_value=False),
+            patch("wingman.instance._instance_connected", return_value=True),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_service_registered", return_value=True),
@@ -186,6 +187,93 @@ class TestUp:
 
         captured = capsys.readouterr()
         assert "already running" in captured.out
+
+    def test_running_but_logged_out_reconnects(self, tmp_path: Path, capsys) -> None:
+        from wingman.instance import up
+
+        platform = _mock_platform(tmp_path)
+        ensure_instance_dir(tmp_path, "office")
+        meta = InstanceMetadata(
+            "office",
+            "https://self.hosted",
+            "unix:///x.sock",
+            "wt7",
+            42,
+            "t",
+            service_registered=True,
+        )
+        write_metadata(tmp_path, meta)
+        mock_up = MagicMock(return_value=MagicMock(returncode=0))
+        mock_start = MagicMock()
+
+        with (
+            patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
+            patch("wingman.instance.has_net_bind_capability", return_value=True),
+            patch("wingman.instance.resolved_dns_state", return_value="active"),
+            patch("wingman.instance.is_service_active", return_value=True),
+            patch("wingman.instance.is_service_registered", return_value=True),
+            patch(
+                "wingman.instance.run_status_json",
+                return_value=MagicMock(
+                    returncode=0, stdout="Daemon status: NeedsLogin\n\nRun UP...\n"
+                ),
+            ),
+            patch("wingman.instance.run_up", mock_up),
+            patch("wingman.instance.start_service", mock_start),
+            patch(
+                "wingman.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
+        ):
+            up(name="office", management_url="https://api.netbird.io:443")
+
+        # Reconnects through the existing daemon, with the instance's own settings
+        mock_start.assert_not_called()
+        mock_up.assert_called_once()
+        args = mock_up.call_args.args
+        assert args[1] == "unix:///x.sock"
+        assert args[2] == "https://self.hosted"
+        assert args[4] == "wt7"
+        captured = capsys.readouterr()
+        assert "not connected" in captured.out
+        assert "already running" not in captured.out
+
+    def test_running_but_logged_out_login_fails(self, tmp_path: Path) -> None:
+        import typer
+
+        from wingman.instance import up
+
+        platform = _mock_platform(tmp_path)
+        ensure_instance_dir(tmp_path, "office")
+        meta = InstanceMetadata(
+            "office", "url", "addr", "wt7", 42, "t", service_registered=True
+        )
+        write_metadata(tmp_path, meta)
+
+        with (
+            patch("wingman.instance.get_platform_config", return_value=platform),
+            patch("wingman.instance.find_netbird_bin", return_value="netbird"),
+            patch("wingman.instance.has_net_admin_capability", return_value=None),
+            patch("wingman.instance.resolved_dns_authorized", return_value=True),
+            patch("wingman.instance.has_net_bind_capability", return_value=True),
+            patch("wingman.instance.resolved_dns_state", return_value="active"),
+            patch("wingman.instance.is_service_active", return_value=True),
+            patch("wingman.instance.is_service_registered", return_value=True),
+            patch("wingman.instance._instance_connected", return_value=False),
+            patch(
+                "wingman.instance.run_up",
+                return_value=MagicMock(returncode=1, stderr="login failed"),
+            ),
+            patch(
+                "wingman.instance.derive_netbird_runtime",
+                return_value=_mock_runtime(tmp_path, "office"),
+            ),
+            pytest.raises(typer.Exit),
+        ):
+            up(name="office", management_url="url")
 
     def test_already_running_registers_missing_service(
         self, tmp_path: Path, capsys
@@ -209,6 +297,7 @@ class TestUp:
             patch("wingman.instance.has_net_bind_capability", return_value=True),
             patch("wingman.instance.resolved_dns_state", return_value="active"),
             patch("wingman.instance.is_service_active", return_value=False),
+            patch("wingman.instance._instance_connected", return_value=True),
             patch("wingman.instance.is_process_alive", return_value=True),
             patch("wingman.instance.read_pid", return_value=42),
             patch("wingman.instance.is_service_registered", return_value=False),
@@ -958,3 +1047,29 @@ class TestFqdnCollisions:
 
         _warn_fqdn_collisions({})
         assert capsys.readouterr().err == ""
+
+
+class TestInstanceConnected:
+    def _check(self, returncode: int, stdout: str) -> bool:
+        from wingman.instance import _instance_connected
+
+        with patch(
+            "wingman.instance.run_status_json",
+            return_value=MagicMock(returncode=returncode, stdout=stdout),
+        ):
+            return _instance_connected("netbird", "addr")
+
+    def test_connected(self) -> None:
+        assert self._check(0, json.dumps({"management": {"connected": True}}))
+
+    def test_management_disconnected(self) -> None:
+        assert not self._check(0, json.dumps({"management": {"connected": False}}))
+
+    def test_needs_login_banner_is_not_json(self) -> None:
+        assert not self._check(0, "Daemon status: NeedsLogin\n\nRun UP command\n")
+
+    def test_daemon_unreachable(self) -> None:
+        assert not self._check(1, "")
+
+    def test_null_management(self) -> None:
+        assert not self._check(0, json.dumps({"management": None}))

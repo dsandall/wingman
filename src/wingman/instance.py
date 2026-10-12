@@ -150,6 +150,26 @@ def _instance_running(name: str, platform: PlatformConfig) -> bool:
     return pid is not None and is_process_alive(pid)
 
 
+def _instance_connected(netbird_bin: str, daemon_addr: str) -> bool:
+    """Whether a running daemon is actually logged in and connected.
+
+    A live daemon says nothing about the session: it also runs while logged out
+    (NeedsLogin, SessionExpired, LoginFailed) or after a `netbird down` (Idle).
+    In the logged-out states `netbird status --json` prints a plain-text hint
+    instead of JSON, so anything unparseable counts as not connected.
+    """
+    result = run_status_json(netbird_bin, daemon_addr)
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    return bool((data.get("management") or {}).get("connected"))
+
+
 def _wait_daemon_ready(netbird_bin: str, daemon_addr: str, attempts: int = 20) -> bool:
     """Poll until the daemon answers on its socket — systemd start is async."""
     for _ in range(attempts):
@@ -225,6 +245,12 @@ def up(
     resolved_addr = daemon_addr or derive_daemon_addr(name, platform)
     resolved_iface = interface_name or derive_interface_name(name, platform)
 
+    # NetBird namespaces profiles in a per-user subdir (e.g. <state>/<user>/
+    # personal.json); the profile name is that file's stem. The flat root-style
+    # config.json (config_path.parent == config_dir) predates profiles and needs
+    # no --profile selector.
+    profile = config_path.stem if config_path.parent != config_dir else None
+
     metadata = read_metadata(platform.config_root, name)
     if _instance_running(name, platform):
         if metadata is not None:
@@ -239,7 +265,32 @@ def up(
                 )
                 metadata.service_registered = True
                 write_metadata(platform.config_root, metadata)
-            typer.echo(f"Instance '{name}' is already running.")
+            if _instance_connected(netbird_bin, metadata.daemon_addr):
+                typer.echo(f"Instance '{name}' is already running.")
+                return
+            # The daemon is up but the session isn't (logged out, expired, or
+            # disconnected with `netbird down`). Reconnect through the daemon
+            # that's already there, with the settings the instance was created
+            # with, rather than reporting a dead instance as running.
+            typer.echo(
+                f"Instance '{name}' is running but not connected. "
+                f"Connecting to {metadata.management_url}..."
+            )
+            result = run_up(
+                netbird_bin,
+                metadata.daemon_addr,
+                metadata.management_url,
+                setup_key,
+                metadata.interface_name,
+                profile=profile,
+                env=runtime_env,
+            )
+            if result.returncode != 0:
+                typer.echo(f"Failed to connect: {result.stderr}", err=True)
+                raise typer.Exit(1)
+            typer.echo(
+                f"Instance '{name}' is up (interface {metadata.interface_name})."
+            )
             return
         # Running without metadata — a leftover from a failed start. Tear it
         # down (service and/or supervised daemon) and start cleanly.
@@ -263,12 +314,6 @@ def up(
         runtime_env=runtime_env,
         platform=platform,
     )
-
-    # NetBird namespaces profiles in a per-user subdir (e.g. <state>/<user>/
-    # personal.json); the profile name is that file's stem. The flat root-style
-    # config.json (config_path.parent == config_dir) predates profiles and needs
-    # no --profile selector.
-    profile = config_path.stem if config_path.parent != config_dir else None
 
     typer.echo(f"Connecting to {management_url}...")
     result = run_up(
