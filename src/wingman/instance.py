@@ -4,6 +4,7 @@ import json
 import re
 import shutil
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import typer
@@ -458,10 +459,11 @@ def _parse_peer_lines(detail_output: str) -> list[tuple[str, str, str | None]]:
     return peers
 
 
-# Display ordering within a network: connected first, then connecting, then the
-# rest (NetBird reports offline/lazy peers as "Idle", others as "Disconnected").
-_STATUS_RANK = {"connected": 0, "connecting": 1}
-# Rich styles applied to a peer's status cell; unlisted statuses render plain.
+# Display ordering: this node ("self") first, then connected, then connecting,
+# then the rest (NetBird reports offline/lazy peers as "Idle", others as
+# "Disconnected").
+_STATUS_RANK = {"self": -1, "connected": 0, "connecting": 1}
+# Rich styles applied to a peer's status glyph; unlisted statuses render dim.
 _STATUS_STYLE = {
     "connected": "green",
     "connecting": "yellow",
@@ -632,14 +634,39 @@ def _warn_fqdn_collisions(collisions: dict[str, list[str]]) -> None:
     )
 
 
-def _show_instance_peers(
-    name: str, platform: PlatformConfig, verbose: bool = False
-) -> set[str]:
-    """Print an instance's peer table; return its peer FQDNs."""
+# (name, status, ip, last_seen) for one peer, as `_parse_peer_lines_json` returns.
+_Peer = tuple[str, str, str | None, str]
+
+
+@dataclass
+class _InstancePeers:
+    """One instance's `netbird status --json`, parsed for the peers view."""
+
+    name: str
+    domain: str | None
+    self_entry: tuple[str, str | None, str] | None
+    peers: list[_Peer]
+    fqdns: set[str]
+
+
+def _dns_domain(json_output: str) -> str | None:
+    """The account's DNS domain: this node's FQDN minus its first label."""
+    try:
+        fqdn = json.loads(json_output).get("fqdn") or ""
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return None
+    _, _, domain = fqdn.partition(".")
+    return domain or None
+
+
+def _collect_instance_peers(
+    name: str, platform: PlatformConfig
+) -> _InstancePeers | None:
+    """Fetch and parse an instance's peers; print why and return None if we can't."""
     metadata = read_metadata(platform.config_root, name)
     if metadata is None:
         typer.echo(f"{name}: not found")
-        return set()
+        return None
 
     netbird_bin = find_netbird_bin()
 
@@ -647,66 +674,126 @@ def _show_instance_peers(
     json_result = run_status_json(netbird_bin, metadata.daemon_addr)
     if json_result.returncode != 0:
         typer.echo(f"--- {name} (unreachable) ---")
-        return set()
+        return None
 
     last_seen = read_last_seen(platform.config_root, name)
     self_entry, peers = _parse_peer_lines_json(json_result.stdout, last_seen)
     write_last_seen(platform.config_root, name, last_seen)
+    return _InstancePeers(
+        name=name,
+        domain=_dns_domain(json_result.stdout),
+        self_entry=self_entry,
+        peers=peers,
+        fqdns=_peer_fqdns(json_result.stdout),
+    )
 
+
+# One glyph per status so a cell reads at a glance; unlisted statuses get "✕".
+_STATUS_GLYPH = {"connected": "●", "connecting": "◐", "idle": "○"}
+_LEGEND = "● connected  ◐ connecting  ○ idle  ✕ other  · times are last handshake"
+
+
+def _members(inst: _InstancePeers) -> list[_Peer]:
+    """The instance's peers plus this node itself, as status "self"."""
+    if inst.self_entry is None:
+        return inst.peers
+    self_name, self_ip, self_last_seen = inst.self_entry
+    return [(self_name, "self", self_ip, self_last_seen), *inst.peers]
+
+
+def _peer_groups(
+    instances: list[_InstancePeers],
+) -> list[list[tuple[str, list[_Peer | None]]]]:
+    """Machines grouped by which instances they're on, for one combined table.
+
+    Each row is ``(name, [peer-or-None per instance])``. Machines are matched by
+    short hostname, case-insensitively: NetBird has no cross-account identity,
+    and a machine joined to two accounts gets a different WireGuard key in each.
+    Groups on more instances come first (shared machines, then each instance's
+    own); within a group, rows sort by their best status, then name.
+    """
+    cells: dict[str, list[_Peer | None]] = {}
+    for i, inst in enumerate(instances):
+        for peer in _members(inst):
+            row = cells.setdefault(peer[0].lower(), [None] * len(instances))
+            row[i] = peer
+    groups: dict[tuple[int, ...], list[tuple[str, list[_Peer | None]]]] = {}
+    for row in cells.values():
+        on = tuple(i for i, peer in enumerate(row) if peer is not None)
+        name = next(peer[0] for peer in row if peer is not None)
+        groups.setdefault(on, []).append((name, row))
+
+    def row_key(item: tuple[str, list[_Peer | None]]) -> tuple[int, str]:
+        return min(_peer_sort_key(peer) for peer in item[1] if peer is not None)
+
+    return [
+        sorted(groups[on], key=row_key)
+        for on in sorted(groups, key=lambda on: (-len(on), on))
+    ]
+
+
+def _peer_cells(peer: _Peer | None, verbose: bool) -> list[str]:
+    """The status cell (and IP cell, if verbose) for one machine on one instance."""
+    if peer is None:
+        return ["", ""] if verbose else [""]
+    _, status, ip, last_seen = peer
+    if status == "self":
+        cell = "[cyan]◆ self[/cyan]"
+    else:
+        glyph = _STATUS_GLYPH.get(status.lower(), "✕")
+        style = _STATUS_STYLE.get(status.lower(), "dim")
+        age = "—" if last_seen == "Never" else last_seen.removesuffix(" ago")
+        cell = f"[{style}]{glyph}[/{style}] {age}"
+    return [cell, ip or "-"] if verbose else [cell]
+
+
+def _print_peers_table(instances: list[_InstancePeers], verbose: bool) -> None:
     table = Table(
-        title=f"[bold]{name}[/bold]",
-        title_justify="left",
         box=box.SIMPLE_HEAD,
         pad_edge=False,
+        show_edge=False,
     )
-    table.add_column("NAME", style="bold")
-    table.add_column("STATUS")
-    if verbose:
-        table.add_column("IP", style="dim")
-    table.add_column("LAST SEEN", style="dim", justify="right")
-
-    # Show self as the first row (from top-level JSON fqdn/netbirdIp).
-    if self_entry:
-        self_name, self_ip, self_last_seen = self_entry
-        self_row = [f"[cyan]{self_name}[/cyan]", "self"]
+    table.add_column("NAME", style="bold", no_wrap=True)
+    for inst in instances:
+        domain = f" [dim]{inst.domain}[/dim]" if inst.domain else ""
+        table.add_column(f"{inst.name.upper()}{domain}", no_wrap=True)
         if verbose:
-            self_row.append(self_ip or "-")
-        self_row.append(self_last_seen)
-        table.add_row(*self_row)
+            table.add_column("IP", style="dim", no_wrap=True)
 
-    for peer_name, status, ip, last_seen in sorted(peers, key=_peer_sort_key):
-        style = _STATUS_STYLE.get(status.lower())
-        status_cell = f"[{style}]{status}[/{style}]" if style else status
-        row: list[str] = [peer_name, status_cell]
-        if verbose:
-            row.append(ip or "-")
-        row.append(last_seen)
-        table.add_row(*row)
-
-    if table.row_count == 0:
-        typer.echo(f"--- {name} ---")
-        typer.echo("(no peers)")
-    else:
-        _console.print(table)
-    return _peer_fqdns(json_result.stdout)
+    groups = _peer_groups(instances)
+    for g, group in enumerate(groups):
+        for r, (name, row) in enumerate(group):
+            statuses = {peer[1].lower() for peer in row if peer is not None}
+            if "self" in statuses:
+                name_cell = f"[cyan]{name}[/cyan]"
+            elif "connected" in statuses:
+                name_cell = name
+            else:  # not connected on any instance
+                name_cell = f"[not bold dim]{name}[/]"
+            table.add_row(
+                name_cell,
+                *(cell for peer in row for cell in _peer_cells(peer, verbose)),
+                end_section=r == len(group) - 1 and g < len(groups) - 1,
+            )
+    _console.print(table)
+    _console.print(_LEGEND, style="dim")
 
 
 def peers(name: str | None = None, verbose: bool = False) -> None:
     platform = get_platform_config()
 
-    if name:
-        _show_instance_peers(name, platform, verbose)
-        return
-
-    instances = list_instances(platform.config_root)
-    if not instances:
+    names = [name] if name else list_instances(platform.config_root)
+    if not names:
         typer.echo("No instances found.")
         return
-    fqdns = {
-        inst_name: _show_instance_peers(inst_name, platform, verbose)
-        for inst_name in instances
-    }
-    _warn_fqdn_collisions(_find_fqdn_collisions(fqdns))
+    instances = [
+        inst
+        for n in names
+        if (inst := _collect_instance_peers(n, platform)) is not None
+    ]
+    if instances:
+        _print_peers_table(instances, verbose)
+    _warn_fqdn_collisions(_find_fqdn_collisions({i.name: i.fqdns for i in instances}))
 
 
 def list_all() -> None:

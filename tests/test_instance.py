@@ -1073,3 +1073,37 @@ class TestInstanceConnected:
 
     def test_null_management(self) -> None:
         assert not self._check(0, json.dumps({"management": None}))
+
+
+class TestPeersAcrossInstances:
+    def test_dns_domain_strips_host_label(self) -> None:
+        from wingman.instance import _dns_domain
+
+        assert _dns_domain('{"fqdn":"design-desktop.softek.cloud"}') == "softek.cloud"
+        assert _dns_domain('{"fqdn":"bare"}') is None
+        assert _dns_domain("{}") is None
+        assert _dns_domain("not json") is None
+
+    def test_groups_shared_machines_first_then_each_instance(self) -> None:
+        from wingman.instance import _InstancePeers, _peer_groups
+
+        def inst(name: str, peers: list[tuple[str, str]]) -> _InstancePeers:
+            rows = [(p, status, None, "Never") for p, status in peers]
+            return _InstancePeers(
+                name, None, ("design-desktop", None, "Now"), rows, set()
+            )
+
+        personal = inst("personal", [("Cubert", "Idle"), ("spi-xi", "Connected")])
+        work = inst(
+            "work",
+            [("lynx", "Idle"), ("cubert", "Connected"), ("lab-top", "Connected")],
+        )
+        groups = _peer_groups([personal, work])
+
+        names = [[name for name, _ in group] for group in groups]
+        # Hostnames match case-insensitively; self sorts first, then by best status.
+        assert names == [["design-desktop", "Cubert"], ["spi-xi"], ["lab-top", "lynx"]]
+        _, cubert = groups[0][1]
+        assert [peer[1] for peer in cubert] == ["Idle", "Connected"]
+        _, spi = groups[1][0]
+        assert spi[1] is None
